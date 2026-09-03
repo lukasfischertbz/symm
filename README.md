@@ -2,6 +2,9 @@
 
 A wlr-layer-shell notification daemon (DBus org.freedesktop.Notifications).
 
+> [!NOTE]
+> Made on hyprland
+
 ![](preview.avif)
 
 ![](preview.png)
@@ -10,6 +13,17 @@ A wlr-layer-shell notification daemon (DBus org.freedesktop.Notifications).
 git clone git@github.com:lukasfischertbz/symm.git
 cd symm
 make install clear run
+```
+
+Test
+
+```sh
+notify-send -u low "low" "Message"
+notify-send -u normal "normal" "Message"
+notify-send -u critical "critical" "Message"
+
+notify-send "" "1\n2"
+notify-send -t -1 "Click me" ""
 ```
 
 ---
@@ -98,6 +112,8 @@ to normal; `urgent_critical` to critical. Colors accept any QColor string.
 
 - [x] Timeout visualizer
 - [ ] History
+- [ ] Details
+- [ ] Icons
 - [ ] Actions
 - [ ] Texture
 - [ ] Transparency

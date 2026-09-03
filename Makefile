@@ -21,5 +21,8 @@ clear:
 	-pkill -f mako || true
 	-pkill -f dunst || true
 
-run: install
+run:
 	setsid $(PREFIX)/bin/$(BIN) >/tmp/symm.log 2>&1 < /dev/null &
+
+tidy:
+	run-clang-tidy -p build/linux/debug -j $(shell nproc) -header-filter=src -fix $(shell find src -name '*.cpp')
