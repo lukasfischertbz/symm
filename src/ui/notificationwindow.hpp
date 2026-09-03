@@ -14,36 +14,37 @@ class QTimer;
 // and body. Timed notifications show a draining bar and auto-dismiss;
 // persistent ones stay until clicked with no bar.
 class NotificationWindow : public QWidget {
-    Q_OBJECT
+  Q_OBJECT
 public:
-    explicit NotificationWindow(const Notification& n, const Config& cfg, QWidget* parent = nullptr);
+  explicit NotificationWindow(const Notification &n, const Config &cfg,
+                              QWidget *parent = nullptr);
 
-    // Top offset (px) from the screen top; used to stack multiple notifications.
-    void setTopOffset(int topMargin);
+  // Top offset (px) from the screen top; used to stack multiple notifications.
+  void setTopOffset(int topMargin);
 
 signals:
-    void dismissed(uint id);
-    void resized();
+  void dismissed(uint id);
+  void resized();
 
 protected:
-    void paintEvent(QPaintEvent* event) override;
-    void showEvent(QShowEvent* event) override;
-    void resizeEvent(QResizeEvent* event) override;
-    void mousePressEvent(QMouseEvent* event) override;
+  void paintEvent(QPaintEvent *event) override;
+  void showEvent(QShowEvent *event) override;
+  void resizeEvent(QResizeEvent *event) override;
+  void mousePressEvent(QMouseEvent *event) override;
 
 private slots:
-    void onTimeoutFinished();
+  void onTimeoutFinished();
 
 private:
-    void layoutContents(const Notification& n);
-    void setupLayerShell();
+  void layoutContents(const Notification &n);
+  void setupLayerShell();
 
-    uint m_id;
-    int m_remainingMs;
-    Config m_cfg;
-    UrgencyStyle m_style;
-    QPointer<QTimer> m_lifeTimer;
-    TimerBarWidget* m_timerBar = nullptr;
-    QLabel* m_summaryLabel = nullptr;
-    QLabel* m_bodyLabel = nullptr;
+  uint m_id;
+  int m_remainingMs;
+  Config m_cfg;
+  UrgencyStyle m_style;
+  QPointer<QTimer> m_lifeTimer;
+  TimerBarWidget *m_timerBar = nullptr;
+  QLabel *m_summaryLabel = nullptr;
+  QLabel *m_bodyLabel = nullptr;
 };

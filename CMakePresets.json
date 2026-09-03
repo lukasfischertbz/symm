@@ -1,0 +1,19 @@
+{
+  "buildPresets": [
+    {
+      "configurePreset": "normal",
+      "name": "normal"
+    }
+  ],
+  "configurePresets": [
+    {
+      "binaryDir": "build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      },
+      "generator": "Ninja",
+      "name": "normal"
+    }
+  ],
+  "version": 3
+}

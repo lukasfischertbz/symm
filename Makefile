@@ -10,8 +10,8 @@ install: build
 	$(CMAKE) --install $(BUILD_DIR) --prefix $(PREFIX)
 
 build:
-	$(CMAKE) -S . -B $(BUILD_DIR)
-	$(CMAKE) --build $(BUILD_DIR)
+	$(CMAKE) -S . -B $(BUILD_DIR) -G Ninja --preset normal
+	$(CMAKE) --build $(BUILD_DIR) --preset normal
 
 uninstall:
 	rm -f $(PREFIX)/bin/$(BIN)

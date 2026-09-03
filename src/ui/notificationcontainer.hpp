@@ -14,25 +14,25 @@ class QVBoxLayout;
 // translucent layer-shell surface). Adding/removing cards reflows them
 // automatically via the layout — no per-window repositioning needed.
 class NotificationContainer : public QWidget {
-    Q_OBJECT
+  Q_OBJECT
 public:
-    explicit NotificationContainer(const Config& cfg, QWidget* parent = nullptr);
+  explicit NotificationContainer(const Config &cfg, QWidget *parent = nullptr);
 
-    void addCard(NotificationCard* card);
-    void removeCard(NotificationCard* card);
+  void addCard(NotificationCard *card);
+  void removeCard(NotificationCard *card);
 
 signals:
-    void sizeChanged();
+  void sizeChanged();
 
 protected:
-    void showEvent(QShowEvent* event) override;
-    void paintEvent(QPaintEvent* event) override;
-    void resizeEvent(QResizeEvent* event) override;
+  void showEvent(QShowEvent *event) override;
+  void paintEvent(QPaintEvent *event) override;
+  void resizeEvent(QResizeEvent *event) override;
 
 private:
-    void setupLayerShell();
-    void updateSize();
+  void setupLayerShell();
+  void updateSize();
 
-    Config m_cfg;
-    QVBoxLayout* m_layout = nullptr;
+  Config m_cfg;
+  QVBoxLayout *m_layout = nullptr;
 };

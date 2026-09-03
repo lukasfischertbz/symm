@@ -1,6 +1,17 @@
 pre-commit:
   parallel: true
-  jobs:
-    - run: clang-format {staged_files}
+  commands:
+    clang-format:
       glob: "*.{cpp,hpp}"
+      run: clang-format --style=file -i {staged_files}
+      stage_fixed: true
+
+    cmake-format:
+      glob: "*.cmake,CMakeLists.txt}"
+      run: cmake-format -i {staged_files}
+      stage_fixed: true
+
+    prettier-check:
+      glob: "*.md"
+      run: prettier --write {staged_files}
       stage_fixed: true

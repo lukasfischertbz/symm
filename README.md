@@ -72,9 +72,9 @@ If the file is missing, defaults are used.
 
 Copy preset
 
-~~~sh
+```sh
 mkdir -p ~/.config/symm && cp config.conf ~/.config/symm/config.conf
-~~~
+```
 
 [Example](config.conf)
 
@@ -111,10 +111,10 @@ to normal; `urgent_critical` to critical. Colors accept any QColor string.
 ## Features
 
 - [x] Timeout visualizer
+- [x] Actions
 - [ ] History
 - [ ] Details
 - [ ] Icons
-- [ ] Actions
 - [ ] Texture
 - [ ] Transparency
 - [ ] Use active monitor
