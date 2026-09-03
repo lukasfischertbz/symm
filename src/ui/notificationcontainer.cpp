@@ -76,6 +76,7 @@ void NotificationContainer::setupLayerShell() {
     return;
   }
   shell->setLayer(LayerShellQt::Window::LayerOverlay);
+  shell->setScope(QStringLiteral("notifier"));
   using Anchor = LayerShellQt::Window::Anchor;
   shell->setAnchors(QFlags<Anchor>(Anchor::AnchorTop) |
                     QFlags<Anchor>(Anchor::AnchorRight));

@@ -8,8 +8,7 @@
 #include "../config.hpp"
 #include "../notification.hpp"
 
-class NotificationContainer;
-class NotificationCard;
+class NotificationWindow;
 class NotificationHistoryWindow;
 
 // A recorded notification in the history log.
@@ -22,8 +21,8 @@ struct HistoryEntry {
   QDateTime timestamp;
 };
 
-// Hosts a single NotificationContainer that stacks all active notifications as
-// child cards (auto-reflowed by the layout), plus the history log.
+// Maintains a stack of NotificationWindow layer-shell surfaces (one per
+// notification), offset vertically under the top margin, plus the history log.
 class NotificationManager : public QObject {
   Q_OBJECT
 public:
@@ -43,11 +42,11 @@ private:
   void trimHistory();
   void loadHistory();
   void saveHistory() const;
+  void reflow();
 
   Config m_cfg;
   bool m_removing = false;
-  QPointer<NotificationContainer> m_container;
-  QList<QPointer<NotificationCard>> m_cards;
+  QList<QPointer<NotificationWindow>> m_windows;
   QList<HistoryEntry> m_history;
   QPointer<NotificationHistoryWindow> m_historyWindow;
 };

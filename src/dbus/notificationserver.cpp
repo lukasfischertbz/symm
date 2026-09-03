@@ -1,5 +1,6 @@
 #include "notificationserver.hpp"
 
+#include <QDBusArgument>
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
 #include <QDBusMessage>
@@ -7,8 +8,49 @@
 #include <QDBusReply>
 #include <QDebug>
 #include <QIcon>
+#include <QImage>
+#include <QPixmap>
 
 #include "../ui/notificationmanager.hpp"
+
+namespace {
+// Decodes the freedesktop "image-data"/"image_data" hint: a raw pixel struct
+// (iiibiiay) = width, height, rowstride, has_alpha, bits_per_sample,
+// channels, pixel bytes. This is how most screenshot/media-key style tools
+// (e.g. GNOME's volume OSD, some screenshot tools) send an icon instead of a
+// themed icon name.
+QImage imageFromHint(const QVariant &hint) {
+  if (!hint.canConvert<QDBusArgument>()) {
+    return {};
+  }
+  QDBusArgument arg = hint.value<QDBusArgument>();
+
+  int width = 0;
+  int height = 0;
+  int rowstride = 0;
+  bool hasAlpha = false;
+  int bitsPerSample = 0;
+  int channels = 0;
+  QByteArray pixels;
+
+  arg.beginStructure();
+  arg >> width >> height >> rowstride >> hasAlpha >> bitsPerSample >> channels;
+  arg >> pixels;
+  arg.endStructure();
+
+  if (width <= 0 || height <= 0 || pixels.isEmpty() || bitsPerSample != 8) {
+    return {};
+  }
+
+  const QImage::Format fmt =
+      hasAlpha ? QImage::Format_RGBA8888 : QImage::Format_RGB888;
+  const QImage view(reinterpret_cast<const uchar *>(pixels.constData()), width,
+                    height, rowstride, fmt);
+  // Deep copy: `pixels` (and thus the raw buffer QImage points at) goes out
+  // of scope when this function returns.
+  return view.copy();
+}
+} // namespace
 
 NotificationServer::NotificationServer(QObject *parent) : QObject(parent) {
   // Allow returning a{sv} maps nested inside the history a(av) reply.
@@ -76,10 +118,26 @@ uint NotificationServer::Notify(const QString &appName, uint replacesId,
   n.summary = summary;
   n.body = body;
 
-  if (!appIcon.isEmpty()) {
-    n.icon = QIcon::fromTheme(appIcon);
-    if (n.icon.isNull()) {
-      n.icon = QIcon(appIcon);
+  // Icon precedence per the spec: raw pixel hints beat a path hint, which
+  // beats the themed/path `app_icon` argument.
+  QImage rawImage = imageFromHint(hints.value(QStringLiteral("image-data")));
+  if (rawImage.isNull()) {
+    rawImage = imageFromHint(
+        hints.value(QStringLiteral("image_data"))); // deprecated alias
+  }
+  if (!rawImage.isNull()) {
+    n.icon = QIcon(QPixmap::fromImage(rawImage));
+  } else {
+    const QString imagePath =
+        hints.value(QStringLiteral("image-path")).toString();
+    if (!imagePath.isEmpty()) {
+      n.icon = QIcon(imagePath);
+    }
+    if (n.icon.isNull() && !appIcon.isEmpty()) {
+      n.icon = QIcon::fromTheme(appIcon);
+      if (n.icon.isNull()) {
+        n.icon = QIcon(appIcon);
+      }
     }
   }
 

@@ -4,15 +4,36 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QScreen>
 #include <QStandardPaths>
 #include <QTimer>
 
-#include "notificationcard.hpp"
-#include "notificationcontainer.hpp"
+#include "../hyprland.hpp"
 #include "notificationhistorywindow.hpp"
+#include "notificationwindow.hpp"
+
+namespace {
+// Resolves the QScreen matching the currently focused Hyprland output, or
+// nullptr if that can't be determined (not Hyprland, hyprctl missing, no
+// matching QScreen) -- callers should fall back to the default screen.
+QScreen *resolveActiveMonitorScreen() {
+  const MonitorInfo mon = activeHyprlandMonitor();
+  if (!mon.valid) {
+    return nullptr;
+  }
+  const QList<QScreen *> screens = QGuiApplication::screens();
+  for (QScreen *s : screens) {
+    if (s->geometry() == mon.geometry) {
+      return s;
+    }
+  }
+  return nullptr;
+}
+} // namespace
 
 namespace {
 QString historyFilePath() {
@@ -28,18 +49,6 @@ NotificationManager::NotificationManager(const Config &cfg, QObject *parent)
 
 void NotificationManager::show(const Notification &n) {
   m_cfg = Config::load();
-  {
-    QFile dbg(QStringLiteral("/home/hitler/source/notifier/build/cfg.txt"));
-    if (dbg.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-      dbg.write((QStringLiteral(
-                     "paddingH=%1 paddingV=%2 cardSpacing=%3 bgOpacity=%4\n")
-                     .arg(m_cfg.paddingH)
-                     .arg(m_cfg.paddingV)
-                     .arg(m_cfg.cardSpacing)
-                     .arg(m_cfg.backgroundOpacity, 0, 'f', 2))
-                    .toUtf8());
-    }
-  }
 
   HistoryEntry entry;
   entry.id = n.id;
@@ -52,44 +61,35 @@ void NotificationManager::show(const Notification &n) {
   trimHistory();
   saveHistory();
 
-  if (m_container == nullptr) {
-    m_container = new NotificationContainer(m_cfg, nullptr);
-  }
+  // Placement uses whichever monitor is focused right now; it does not
+  // follow focus afterwards (a notification already on screen stays put).
+  QScreen *targetScreen =
+      m_cfg.useActiveMonitor ? resolveActiveMonitorScreen() : nullptr;
 
-  auto *card = new NotificationCard(n, m_cfg, m_container);
-  m_cards.append(card);
-  // Size the container to hold (all) cards, then (re)show it so the layer
-  // surface is mapped at the correct extent. Mapping before sizing makes the
-  // compositor shrink the surface to the default widget size.
-  m_container->addCard(card);
-  if (!m_container->isVisible()) {
-    m_container->show();
-  }
+  auto *win = new NotificationWindow(n, m_cfg, targetScreen, nullptr);
+  m_windows.append(win);
+  reflow();
 
-  // Remove the card + reflow (the layout does the reflow automatically) on
-  // dismissal by click, timeout, or explicit close.
-  connect(card, &NotificationCard::dismissed, this, [this](uint id) {
+  connect(win, &NotificationWindow::resized, this, [this] { reflow(); });
+
+  // Remove the window on dismissal (click / timeout / explicit close) or when
+  // an action button is invoked. Defer out of the emitting stack to avoid
+  // re-entrant delete/close chains.
+  connect(win, &NotificationWindow::dismissed, this, [this](uint id) {
     QTimer::singleShot(0, this, [this, id] { remove(id); });
   });
-  // Forward an invoked action up to the server so it can emit ActionInvoked.
-  // Defer removal out of the button's clicked-handler stack (which is still
-  // unwinding) to avoid re-entrant delete/close inside the D-Bus emission.
-  connect(card, &NotificationCard::actionInvoked, this,
+  connect(win, &NotificationWindow::actionInvoked, this,
           [this](uint id, const QString &key) {
             emit actionInvoked(id, key);
             QTimer::singleShot(0, this, [this, id] { remove(id); });
           });
-  // If the card is destroyed by any path outside remove(), null its slot so
-  // m_cards never holds a stale pointer. Guard the container so a destroyed
-  // container can never be dereferenced.
-  connect(card, &QObject::destroyed, this, [this](QObject *obj) {
-    for (QPointer<NotificationCard> &p : m_cards) {
+  // Null out the slot if the window is destroyed outside remove(). When the
+  // last window goes away there is nothing left to stack.
+  connect(win, &QObject::destroyed, this, [this](QObject *obj) {
+    for (QPointer<NotificationWindow> &p : m_windows) {
       if (p == obj) {
         p = nullptr;
       }
-    }
-    if (m_cards.isEmpty() && m_container) {
-      m_container->close();
     }
   });
 }
@@ -101,22 +101,19 @@ void NotificationManager::remove(uint id) {
     return;
   }
   m_removing = true;
-  for (int i = 0; i < m_cards.size(); ++i) {
-    NotificationCard *card = m_cards.at(i);
-    if ((card != nullptr) && card->id() == id) {
-      // Disconnect so the card can't fire dismissed/actionInvoked into a
+  for (int i = 0; i < m_windows.size(); ++i) {
+    NotificationWindow *win = m_windows.at(i);
+    if ((win != nullptr) && win->id() == id) {
+      // Disconnect so the window can't fire dismissed/actionInvoked into a
       // half-removed state.
-      card->disconnect(this);
-      if (m_container) {
-        m_container->removeCard(card);
-      }
-      m_cards.removeAt(i);
+      win->disconnect(this);
+      win->close();
+      win->deleteLater();
+      m_windows.removeAt(i);
       break;
     }
   }
-  if (m_cards.isEmpty() && (m_container != nullptr)) {
-    m_container->close();
-  }
+  reflow();
   m_removing = false;
 }
 
@@ -128,6 +125,19 @@ void NotificationManager::showHistoryWindow() {
   }
   m_historyWindow->setEntries(m_history);
   m_historyWindow->showTopRight();
+}
+
+void NotificationManager::reflow() {
+  // Stack the windows under the top margin: each one sits below the previous,
+  // separated by the card spacing. Only live (non-null) windows are counted.
+  int top = m_cfg.top;
+  for (QPointer<NotificationWindow> &p : m_windows) {
+    if (p == nullptr) {
+      continue;
+    }
+    p->setTopOffset(top);
+    top += p->sizeHint().height() + m_cfg.cardSpacing;
+  }
 }
 
 void NotificationManager::trimHistory() {

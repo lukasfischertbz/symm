@@ -21,16 +21,18 @@ add_executable(symm
     src/dbus/notificationserver.hpp
     src/dbus/notificationserver.cpp
     src/notification.hpp
-    src/ui/notificationcard.hpp
-    src/ui/notificationcard.cpp
-    src/ui/notificationcontainer.hpp
-    src/ui/notificationcontainer.cpp
+    src/hyprland.hpp
+    src/hyprland.cpp
     src/ui/notificationmanager.hpp
     src/ui/notificationmanager.cpp
+    src/ui/notificationwindow.hpp
+    src/ui/notificationwindow.cpp
     src/ui/notificationhistorywindow.hpp
     src/ui/notificationhistorywindow.cpp
     src/ui/timerbarwidget.hpp
     src/ui/timerbarwidget.cpp
+    src/ui/blur.hpp
+    src/ui/blur.cpp
 )
 
 target_link_libraries(symm PRIVATE

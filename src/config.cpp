@@ -116,6 +116,23 @@ Config Config::load() {
       ini.value(QStringLiteral("general"),
                 QStringLiteral("persist_on_minus_one")) == QStringLiteral("1");
 
+  auto readBool = [&](const QString &key, bool fallback) {
+    const QString v = ini.value(QStringLiteral("general"), key);
+    if (v.isEmpty()) {
+      return fallback;
+    }
+    return v == QStringLiteral("true") || v == QStringLiteral("1");
+  };
+
+  c.iconsEnabled = readBool(QStringLiteral("icons_enabled"), c.iconsEnabled);
+  c.iconSize = readInt(QStringLiteral("icon_size"), c.iconSize);
+  c.bodyTruncateChars =
+      readInt(QStringLiteral("body_truncate_chars"), c.bodyTruncateChars);
+  c.blurEnabled = readBool(QStringLiteral("blur_enabled"), c.blurEnabled);
+  c.blurRadius = readInt(QStringLiteral("blur_radius"), c.blurRadius);
+  c.useActiveMonitor =
+      readBool(QStringLiteral("use_active_monitor"), c.useActiveMonitor);
+
   {
     bool ok = false;
     const double v = ini.value(QStringLiteral("general"),
