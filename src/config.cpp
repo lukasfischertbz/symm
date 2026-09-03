@@ -1,5 +1,7 @@
 #include "config.hpp"
 
+#include <algorithm>
+
 #include <QDebug>
 #include <QDir>
 #include <QFile>
@@ -113,6 +115,16 @@ Config Config::load() {
           QStringLiteral("true") ||
       ini.value(QStringLiteral("general"),
                 QStringLiteral("persist_on_minus_one")) == QStringLiteral("1");
+
+  {
+    bool ok = false;
+    const double v = ini.value(QStringLiteral("general"),
+                               QStringLiteral("background_opacity"))
+                         .toDouble(&ok);
+    if (ok) {
+      c.backgroundOpacity = std::clamp(v, 0.0, 1.0);
+    }
+  }
 
   {
     bool ok = false;

@@ -31,10 +31,12 @@ void NotificationManager::show(const Notification &n) {
   {
     QFile dbg(QStringLiteral("/home/hitler/source/notifier/build/cfg.txt"));
     if (dbg.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-      dbg.write((QStringLiteral("paddingH=%1 paddingV=%2 cardSpacing=%3\n")
+      dbg.write((QStringLiteral(
+                     "paddingH=%1 paddingV=%2 cardSpacing=%3 bgOpacity=%4\n")
                      .arg(m_cfg.paddingH)
                      .arg(m_cfg.paddingV)
-                     .arg(m_cfg.cardSpacing))
+                     .arg(m_cfg.cardSpacing)
+                     .arg(m_cfg.backgroundOpacity, 0, 'f', 2))
                     .toUtf8());
     }
   }

@@ -31,6 +31,7 @@ struct Config {
                                  // -1`) stays until clicked
 
   QColor background{0x1e, 0x1e, 0x2e, 238};
+  double backgroundOpacity = 1.0; // kitty-style: 1.0 opaque, 0.0 transparent
   QColor textColor{0xcd, 0xd6, 0xf4};
   QColor dimTextColor{0xa6, 0xad, 0xc8};
 

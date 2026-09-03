@@ -109,7 +109,10 @@ void NotificationContainer::paintEvent(QPaintEvent * /*event*/) {
     }
     QPainterPath path;
     path.addRoundedRect(r, m_cfg.radius, m_cfg.radius);
-    p.fillPath(path, bg);
+
+    QColor fill = bg;
+    fill.setAlphaF(fill.alphaF() * m_cfg.backgroundOpacity);
+    p.fillPath(path, fill);
 
     QColor border = card->style().accent;
     border.setAlpha(150);
