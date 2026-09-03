@@ -7,9 +7,9 @@ A wlr-layer-shell notification daemon (DBus org.freedesktop.Notifications).
 ![](preview.png)
 
 ```sh
-git clone
+git clone git@github.com:lukasfischertbz/symm.git
 cd symm
-make build
+make
 ```
 
 ## Build
