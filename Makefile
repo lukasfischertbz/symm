@@ -4,7 +4,7 @@ BIN        := symm
 
 CMAKE      := cmake
 
-.PHONY: build install uninstall
+.PHONY: build install uninstall clear run
 
 install: build
 	$(CMAKE) --install $(BUILD_DIR) --prefix $(PREFIX)
@@ -20,3 +20,6 @@ clear:
 	pkill -f symm
 	pkill -f mako
 	pkill -f dunst
+
+run:
+	nohup ~/.local/bin/symm &> /tmp/symm.log &

@@ -9,8 +9,10 @@ A wlr-layer-shell notification daemon (DBus org.freedesktop.Notifications).
 ```sh
 git clone git@github.com:lukasfischertbz/symm.git
 cd symm
-make
+make install clear run
 ```
+
+---
 
 ## Build
 
@@ -20,27 +22,39 @@ Requires Qt6 (Core Gui Widgets DBus) and Layer Shell Qt.
 make build
 ```
 
+---
+
 ## Install
 
 ```sh
 make
 ```
 
+## Uninstall
+
+```sh
+make uninstall
+```
+
+---
+
 ## Run
 
 ```sh
-symm &
-# ~/.local/bin/symm &
-
-notify-send -t 8000 test hi
+symm & disown
 ```
 
 Starts the DBus notification server and displays floating notifications.
+
+---
 
 ## Config
 
 Config is loaded from `~/.config/symm/config.conf` (respects `$XDG_CONFIG_HOME`).
 If the file is missing, defaults are used.
+
+> [!NOTE]
+> Configs are loaded for every notification
 
 Copy preset
 
@@ -72,21 +86,19 @@ bar = #6c7086
 accent = #6c7086
 
 [urgent_normal]
-bar = #89b4fa
-accent = #89b4fa
-
-[urgent_warning]
-bar = #f9e2af
-accent = #f9e2af
-
-[urgent_error]
-bar = #f38ba8
-accent = #f38ba8
-
-[urgent_critical]
-bar = #f38ba8
-accent = #fb4934
+# ...
 ```
 
 Section `urgent_error` applies to unclassified notifications; `urgent_normal`
 to normal; `urgent_critical` to critical. Colors accept any QColor string.
+
+---
+
+## Features
+
+- [x] Timeout visualizer
+- [ ] History
+- [ ] Actions
+- [ ] Texture
+- [ ] Transparency
+- [ ] Use active monitor
