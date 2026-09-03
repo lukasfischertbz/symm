@@ -2,12 +2,17 @@
 
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
+#include <QDBusMetaType>
 #include <QDBusReply>
 #include <QIcon>
 #include <QDebug>
 
+#include "../ui/notificationmanager.hpp"
+
 NotificationServer::NotificationServer(QObject* parent)
     : QObject(parent) {
+    // Allow returning a{sv} maps nested inside the history a(av) reply.
+    qDBusRegisterMetaType<QVariantMap>();
 }
 
 bool NotificationServer::acquireServiceName() {
@@ -81,13 +86,18 @@ uint NotificationServer::Notify(const QString& appName, uint replacesId,
     int urgency = hints.value(QStringLiteral("urgency")).toInt(&ok);
     n.urgency = ok ? urgency : 1;
 
+    n.persist = (expireTimeout == -1) ||
+                hints.value(QStringLiteral("persistence")).toBool();
+
     int timeout;
-    if (expireTimeout > 0) {
+    if (n.persist) {
+        // -1 or persistence hint: no timeout, stays until dismissed.
+        timeout = -1;
+    } else if (expireTimeout > 0) {
         // App gave an explicit positive duration: honor it.
         timeout = expireTimeout;
     } else {
-        // 0 (server decides) or -1 (permanent): give every notification a
-        // default timer so the bar always drains.
+        // 0 (server decides): pick a default based on urgency.
         switch (n.urgency) {
         case 1:  timeout = m_timeoutNormalMs;    break;
         case 2:  timeout = m_timeoutCriticalMs; break;
@@ -97,7 +107,8 @@ uint NotificationServer::Notify(const QString& appName, uint replacesId,
     n.timeoutMs = timeout;
     n.actions = actions;
 
-    qInfo("notify: urgency=%d expire=%d timeout=%d", n.urgency, expireTimeout, timeout);
+    qInfo("notify: urgency=%d expire=%d timeout=%d persist=%d",
+          n.urgency, expireTimeout, timeout, n.persist);
 
     m_active.insert(n.id);
     emit notificationReceived(n);
@@ -106,4 +117,24 @@ uint NotificationServer::Notify(const QString& appName, uint replacesId,
 
 void NotificationServer::CloseNotification(uint id) {
     emit notificationClosed(id, 3); // 3 = NotificationClosed
+}
+
+QVariantList NotificationServer::GetHistory() {
+    QVariantList result;
+    if (!m_manager) {
+        return result;
+    }
+    const auto history = m_manager->history();
+    result.reserve(history.size());
+    for (const auto& e : history) {
+        QVariantMap map;
+        map[QStringLiteral("id")] = static_cast<int>(e.id);
+        map[QStringLiteral("appName")] = e.appName;
+        map[QStringLiteral("summary")] = e.summary;
+        map[QStringLiteral("body")] = e.body;
+        map[QStringLiteral("urgency")] = e.urgency;
+        map[QStringLiteral("timestamp")] = e.timestamp.toString(Qt::ISODate);
+        result.append(map);
+    }
+    return result;
 }

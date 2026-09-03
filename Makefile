@@ -15,3 +15,8 @@ build:
 
 uninstall:
 	rm -f $(PREFIX)/bin/$(BIN)
+
+clear:
+	pkill -f symm
+	pkill -f mako
+	pkill -f dunst

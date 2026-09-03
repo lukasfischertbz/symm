@@ -21,6 +21,7 @@ struct Config {
     int timeoutNormalMs = 5000;    // default timeout for normal notifications
     int timeoutCriticalMs = 15000; // default timeout for critical notifications
     int timerDefaultMs = 10000;    // bar drain for persistent notifications
+    int historyMaxEntries = 100;   // max history entries retained
 
     QColor background{0x1e, 0x1e, 0x2e, 238};
     QColor textColor{0xcd, 0xd6, 0xf4};

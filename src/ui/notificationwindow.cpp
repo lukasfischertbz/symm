@@ -7,6 +7,7 @@
 #include <QFlags>
 #include <QLabel>
 #include <QMargins>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QScreen>
@@ -45,16 +46,16 @@ NotificationWindow::NotificationWindow(const Notification& n, const Config& cfg,
     int contentH = layout->sizeHint().height();
     setFixedSize(m_cfg.width, qMax(contentH, 70));
 
-    if (n.timeoutMs > 0) {
+    if (!n.persist && n.timeoutMs > 0) {
         m_lifeTimer = new QTimer(this);
         m_lifeTimer->setInterval(n.timeoutMs);
         connect(m_lifeTimer, &QTimer::timeout, this, &NotificationWindow::onTimeoutFinished);
         m_lifeTimer->start();
     }
 
-    // The timer bar needs a duration even for persistent notifications (where
-    // timeoutMs <= 0), so we fall back to the configured default for the drain.
-    m_timerBar->start(n.timeoutMs > 0 ? n.timeoutMs : m_cfg.timerDefaultMs);
+    // Timer bar: drain across the notification's lifetime, or stay full for
+    // persistent notifications until the user dismisses them.
+    m_timerBar->start(n.persist ? 0 : (n.timeoutMs > 0 ? n.timeoutMs : m_cfg.timerDefaultMs));
     show();
 }
 
@@ -93,6 +94,13 @@ void NotificationWindow::setTopOffset(int topMargin) {
 void NotificationWindow::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
     emit resized();
+}
+
+void NotificationWindow::mousePressEvent(QMouseEvent* event) {
+    // Clicking any notification dismisses it immediately.
+    emit dismissed(m_id);
+    close();
+    QWidget::mousePressEvent(event);
 }
 
 void NotificationWindow::layoutContents(const Notification& n) {

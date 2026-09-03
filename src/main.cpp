@@ -33,6 +33,7 @@ int main(int argc, char* argv[]) {
     }
 
     NotificationManager manager(cfg, &app);
+    server.setManager(&manager);
 
     QObject::connect(&server, &NotificationServer::notificationReceived,
                      &manager, &NotificationManager::show);

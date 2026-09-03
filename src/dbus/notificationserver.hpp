@@ -3,10 +3,13 @@
 #include <QDBusContext>
 #include <QObject>
 #include <QStringList>
+#include <QVariantList>
 #include <QVariantMap>
 #include <QSet>
 
 #include "../notification.hpp"
+
+class NotificationManager;
 
 // Implements the freedesktop.org Notifications spec on the session bus.
 class NotificationServer : public QObject, protected QDBusContext {
@@ -20,6 +23,8 @@ public:
         m_timeoutNormalMs = normalMs;
         m_timeoutCriticalMs = criticalMs;
     }
+
+    void setManager(NotificationManager* manager) { m_manager = manager; }
 
     // Claims the org.freedesktop.Notifications service name. Returns true on
     // success, false if the name is held by another daemon and cannot be taken.
@@ -39,6 +44,7 @@ public slots:
                 const QString& summary, const QString& body,
                 const QStringList& actions, const QVariantMap& hints, int expireTimeout);
     void CloseNotification(uint id);
+    QVariantList GetHistory();
 
 private:
     uint m_nextId = 1;
@@ -46,4 +52,5 @@ private:
     int m_timeoutNormalMs = 5000;
     int m_timeoutCriticalMs = 15000;
     QSet<uint> m_active;
+    NotificationManager* m_manager = nullptr;
 };

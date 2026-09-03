@@ -28,6 +28,7 @@ protected:
     void paintEvent(QPaintEvent* event) override;
     void showEvent(QShowEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
 
 private slots:
     void onTimeoutFinished();
