@@ -1,0 +1,6 @@
+pre-commit:
+  parallel: true
+  jobs:
+    - run: clang-format {staged_files}
+      glob: "*.{cpp,hpp}"
+      stage_fixed: true
