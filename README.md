@@ -2,25 +2,36 @@
 
 A wlr-layer-shell notification daemon (DBus org.freedesktop.Notifications).
 
+![](preview.avif)
+
+![](preview.png)
+
+```sh
+git clone
+cd symm
+make build
+```
+
 ## Build
 
 Requires Qt6 (Core Gui Widgets DBus) and Layer Shell Qt.
 
 ```sh
-cmake -S . -B build
-cmake --build build
+make build
 ```
 
 ## Install
 
 ```sh
-cmake --install build --prefix ~/.local   # ~/.local/bin/symm
+make
 ```
 
 ## Run
 
 ```sh
-~/.local/bin/symm &
+symm &
+# ~/.local/bin/symm &
+
 notify-send -t 8000 test hi
 ```
 
@@ -31,7 +42,13 @@ Starts the DBus notification server and displays floating notifications.
 Config is loaded from `~/.config/symm/config.conf` (respects `$XDG_CONFIG_HOME`).
 If the file is missing, defaults are used.
 
-INI-style (`[section]` headers, `key = value`, `#`/`;` comments):
+Copy preset
+
+~~~sh
+mkdir -p ~/.config/symm && cp config.conf ~/.config/symm/config.conf
+~~~
+
+[Example](config.conf)
 
 ```ini
 [general]
@@ -40,7 +57,7 @@ margin = 20
 radius = 12
 font_family = Cantarell
 font_size = 10.5
-timeout_default = 10000
+timeout_low = 10000
 timeout_normal = 5000
 timeout_critical = 15000
 timer_default = 10000

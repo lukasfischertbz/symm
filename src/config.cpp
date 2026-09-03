@@ -93,7 +93,7 @@ Config Config::load() {
     c.margin = readInt(QStringLiteral("margin"), c.margin);
     c.top = readInt(QStringLiteral("top"), c.top);
     c.radius = readInt(QStringLiteral("radius"), c.radius);
-    c.timeoutDefaultMs = readInt(QStringLiteral("timeout_default"), c.timeoutDefaultMs);
+    c.timeoutDefaultMs = readInt(QStringLiteral("timeout_low"), c.timeoutDefaultMs);
     c.timeoutNormalMs = readInt(QStringLiteral("timeout_normal"), c.timeoutNormalMs);
     c.timeoutCriticalMs = readInt(QStringLiteral("timeout_critical"), c.timeoutCriticalMs);
     c.timerDefaultMs = readInt(QStringLiteral("timer_default"), c.timerDefaultMs);
