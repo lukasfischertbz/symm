@@ -25,4 +25,7 @@ run:
 	setsid $(PREFIX)/bin/$(BIN) >/tmp/symm.log 2>&1 < /dev/null &
 
 tidy:
-	run-clang-tidy -p build/linux/debug -j $(shell nproc) -header-filter=src -fix $(shell find src -name '*.cpp')
+	$(CMAKE) -S . -B $(BUILD_DIR) -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+	jq '.[].command |= gsub(" -mno-direct-extern-access"; "")' $(BUILD_DIR)/compile_commands.json > $(BUILD_DIR)/compile_commands.tidy.json
+	mv $(BUILD_DIR)/compile_commands.tidy.json $(BUILD_DIR)/compile_commands.json
+	run-clang-tidy -p $(BUILD_DIR) -j $(shell nproc) -header-filter=src -checks='clang-analyzer-*,bugprone-*,performance-*' $(shell find src -name '*.cpp')

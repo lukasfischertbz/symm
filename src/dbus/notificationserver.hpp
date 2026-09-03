@@ -18,10 +18,11 @@ class NotificationServer : public QObject, protected QDBusContext {
 public:
     explicit NotificationServer(QObject* parent = nullptr);
 
-    void setTimeouts(int defaultMs, int normalMs, int criticalMs) {
+    void setTimeouts(int defaultMs, int normalMs, int criticalMs, bool persistMinusOne) {
         m_timeoutDefaultMs = defaultMs;
         m_timeoutNormalMs = normalMs;
         m_timeoutCriticalMs = criticalMs;
+        m_persistOnMinusOne = persistMinusOne;
     }
 
     void setManager(NotificationManager* manager) { m_manager = manager; }
@@ -38,19 +39,22 @@ signals:
     void notificationClosed(uint id, uint reason);
 
 public slots:
-    QStringList GetCapabilities();
-    QString GetServerInformation(QString& vendor, QString& version, QString& specVersion);
+    static QStringList GetCapabilities();
+    static QString GetServerInformation(QString& vendor, QString& version, QString& specVersion);
     uint Notify(const QString& appName, uint replacesId, const QString& appIcon,
                 const QString& summary, const QString& body,
                 const QStringList& actions, const QVariantMap& hints, int expireTimeout);
     void CloseNotification(uint id);
     QVariantList GetHistory();
+    void ShowHistory();
+    void ClearHistory();
 
 private:
     uint m_nextId = 1;
     int m_timeoutDefaultMs = 10000;
     int m_timeoutNormalMs = 5000;
     int m_timeoutCriticalMs = 15000;
+    bool m_persistOnMinusOne = false;
     QSet<uint> m_active;
     NotificationManager* m_manager = nullptr;
 };

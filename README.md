@@ -23,7 +23,7 @@ notify-send -u normal "normal" "Message"
 notify-send -u critical "critical" "Message"
 
 notify-send "" "1\n2"
-notify-send -t -1 "Click me" ""
+notify-send -h string:persistence:true "Click me"
 ```
 
 ---

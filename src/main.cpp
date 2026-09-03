@@ -1,4 +1,6 @@
 #include <QApplication>
+#include <QDBusConnection>
+#include <QDBusMessage>
 #include <QDebug>
 
 #include <LayerShellQt/Shell>
@@ -6,23 +8,45 @@
 #include "config.hpp"
 #include "dbus/notificationserver.hpp"
 #include "ui/notificationmanager.hpp"
-#include "ui/notificationwindow.hpp"
 
 int main(int argc, char* argv[]) {
+    QApplication app(argc, argv);
+    QApplication::setApplicationName(QStringLiteral("symm"));
+    QApplication::setApplicationDisplayName(QStringLiteral("symm"));
+
+    // CLI subcommand: talk to the running daemon over D-Bus and exit.
+    const QStringList args = QApplication::arguments();
+    if (args.size() > 1) {
+        const QString& cmd = args.at(1);
+        QString method;
+        if (cmd == QStringLiteral("history") || cmd == QStringLiteral("show-history")) {
+            method = QStringLiteral("ShowHistory");
+        } else if (cmd == QStringLiteral("clear")) {
+            method = QStringLiteral("ClearHistory");
+        } else {
+            qWarning() << "Unknown command:" << cmd;
+            return 1;
+        }
+        QDBusMessage call = QDBusMessage::createMethodCall(
+            QStringLiteral("org.freedesktop.Notifications"),
+            QStringLiteral("/org/freedesktop/Notifications"),
+            QStringLiteral("org.freedesktop.Notifications"),
+            method);
+        QDBusConnection::sessionBus().send(call);
+        return 0;
+    }
+
     // Enable wlr-layer-shell BEFORE any windows are created so notifications
     // float as true overlay surfaces (not tiled windows).
     LayerShellQt::Shell::useLayerShell();
 
-    QApplication app(argc, argv);
-    app.setApplicationName(QStringLiteral("symm"));
-    app.setApplicationDisplayName(QStringLiteral("symm"));
-
     const Config cfg = Config::load();
 
     NotificationServer server(&app);
-    server.setTimeouts(cfg.timeoutDefaultMs, cfg.timeoutNormalMs, cfg.timeoutCriticalMs);
+    server.setTimeouts(cfg.timeoutDefaultMs, cfg.timeoutNormalMs, cfg.timeoutCriticalMs,
+                       cfg.persistOnMinusOne);
 
-    if (!server.acquireServiceName()) {
+    if (!NotificationServer::acquireServiceName()) {
         qCritical() << "Could not take org.freedesktop.Notifications;"
                        " another daemon is running.";
         return 1;
@@ -38,5 +62,5 @@ int main(int argc, char* argv[]) {
     QObject::connect(&server, &NotificationServer::notificationReceived,
                      &manager, &NotificationManager::show);
 
-    return app.exec();
+    return QApplication::exec();
 }

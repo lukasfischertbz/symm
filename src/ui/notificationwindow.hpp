@@ -10,8 +10,9 @@
 class QLabel;
 class QTimer;
 
-// Single floating notification card: translucent rounded panel with an icon,
-// title, body and a draining timer bar at the bottom.
+// Single floating notification card: translucent rounded panel with a title
+// and body. Timed notifications show a draining bar and auto-dismiss;
+// persistent ones stay until clicked with no bar.
 class NotificationWindow : public QWidget {
     Q_OBJECT
 public:

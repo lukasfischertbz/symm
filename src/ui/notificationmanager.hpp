@@ -8,7 +8,9 @@
 #include "../config.hpp"
 #include "../notification.hpp"
 
-class NotificationWindow;
+class NotificationContainer;
+class NotificationCard;
+class NotificationHistoryWindow;
 
 // A recorded notification in the history log.
 struct HistoryEntry {
@@ -20,29 +22,28 @@ struct HistoryEntry {
     QDateTime timestamp;
 };
 
-// Tracks all active notification windows and stacks them vertically below the
-// top-right anchor so they never overlap.
+// Hosts a single NotificationContainer that stacks all active notifications as
+// child cards (auto-reflowed by the layout), plus the history log.
 class NotificationManager : public QObject {
     Q_OBJECT
 public:
     explicit NotificationManager(const Config& cfg, QObject* parent = nullptr);
 
     void show(const Notification& n);
+    void remove(uint id);
 
     QList<HistoryEntry> history() const { return m_history; }
     void clearHistory();
-
-private slots:
-    void onWindowResized();
+    void showHistoryWindow();
 
 private:
-    void reflow();
     void trimHistory();
     void loadHistory();
     void saveHistory() const;
 
     Config m_cfg;
-    QList<QPointer<NotificationWindow>> m_windows;
+    QPointer<NotificationContainer> m_container;
+    QList<QPointer<NotificationCard>> m_cards;
     QList<HistoryEntry> m_history;
-    int m_gap = 8;
+    QPointer<NotificationHistoryWindow> m_historyWindow;
 };

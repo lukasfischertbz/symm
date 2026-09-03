@@ -6,12 +6,11 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QMetaObject>
 #include <QStandardPaths>
 
-#include <algorithm>
-
-#include "notificationwindow.hpp"
+#include "notificationcard.hpp"
+#include "notificationcontainer.hpp"
+#include "notificationhistorywindow.hpp"
 
 namespace {
 QString historyFilePath() {
@@ -40,46 +39,60 @@ void NotificationManager::show(const Notification& n) {
     trimHistory();
     saveHistory();
 
-    auto* win = new NotificationWindow(n, m_cfg); // parentless window
-    m_windows.append(win);
-
-    // Reflow when this window is destroyed or resized.
-    QObject::connect(win, &QObject::destroyed, this,
-                     [this](QObject* obj) {
-                         m_windows.erase(
-                             std::remove_if(m_windows.begin(), m_windows.end(),
-                                            [obj](const QPointer<NotificationWindow>& p) {
-                                                return static_cast<QObject*>(p.data()) == obj;
-                                            }),
-                             m_windows.end());
-                         reflow();
-                     });
-    QObject::connect(win, &NotificationWindow::resized, this,
-                     &NotificationManager::onWindowResized);
-
-    // Reflow now and again once the window gets its final size on screen.
-    reflow();
-    QMetaObject::invokeMethod(this, &NotificationManager::reflow, Qt::QueuedConnection);
-}
-
-void NotificationManager::onWindowResized() {
-    reflow();
-}
-
-void NotificationManager::reflow() {
-    m_windows.erase(
-        std::remove_if(m_windows.begin(), m_windows.end(),
-                       [](const QPointer<NotificationWindow>& p) { return !p; }),
-        m_windows.end());
-
-    int top = m_cfg.top;
-    for (const QPointer<NotificationWindow>& w : m_windows) {
-        if (!w) {
-            continue;
-        }
-        w->setTopOffset(top);
-        top += w->height() + m_gap;
+    if (m_container == nullptr) {
+        m_container = new NotificationContainer(m_cfg, nullptr);
+        m_container->show();
     }
+
+    auto* card = new NotificationCard(n, m_cfg, m_container);
+    m_cards.append(card);
+    m_container->addCard(card);
+
+    // Remove the card + reflow (the layout does the reflow automatically) on
+    // dismissal by click, timeout, or explicit close.
+    connect(card, &NotificationCard::dismissed, this,
+            [this](uint id) { remove(id); });
+    // If the card is destroyed by any path outside remove(), null its slot so
+    // m_cards never holds a stale pointer. Guard the container so a destroyed
+    // container can never be dereferenced.
+    connect(card, &QObject::destroyed, this,
+            [this](QObject* obj) {
+                for (QPointer<NotificationCard>& p : m_cards) {
+                    if (p == obj) {
+                        p = nullptr;
+                    }
+                }
+                if (m_cards.isEmpty() && m_container) {
+                    m_container->close();
+                }
+            });
+}
+
+void NotificationManager::remove(uint id) {
+    for (int i = 0; i < m_cards.size(); ++i) {
+        NotificationCard* card = m_cards.at(i);
+        if ((card != nullptr) && card->id() == id) {
+            if (m_container) {
+                m_container->removeCard(card);
+            }
+            m_cards.removeAt(i);
+            break;
+        }
+    }
+    if (m_cards.isEmpty() && (m_container != nullptr)) {
+        m_container->close();
+    }
+}
+
+void NotificationManager::showHistoryWindow() {
+    if (m_historyWindow == nullptr) {
+        m_historyWindow = new NotificationHistoryWindow(m_cfg, nullptr);
+        connect(m_historyWindow, &QObject::destroyed, this, [this] {
+            m_historyWindow = nullptr;
+        });
+    }
+    m_historyWindow->setEntries(m_history);
+    m_historyWindow->showTopRight();
 }
 
 void NotificationManager::trimHistory() {

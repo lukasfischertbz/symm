@@ -61,7 +61,7 @@ struct IniData {
 
 } // namespace
 
-QString Config::urgencyColorKey(int urgency) const {
+QString Config::urgencyColorKey(int urgency) {
     switch (urgency) {
     case 0:
         return QStringLiteral("low");
@@ -98,11 +98,14 @@ Config Config::load() {
     c.timeoutCriticalMs = readInt(QStringLiteral("timeout_critical"), c.timeoutCriticalMs);
     c.timerDefaultMs = readInt(QStringLiteral("timer_default"), c.timerDefaultMs);
     c.historyMaxEntries = readInt(QStringLiteral("history_max_entries"), c.historyMaxEntries);
+    c.persistOnMinusOne = ini.value(QStringLiteral("general"), QStringLiteral("persist_on_minus_one")) == QStringLiteral("true") ||
+                          ini.value(QStringLiteral("general"), QStringLiteral("persist_on_minus_one")) == QStringLiteral("1");
 
     {
         bool ok = false;
         const double v = ini.value(QStringLiteral("general"), QStringLiteral("font_size")).toDouble(&ok);
-        if (ok) c.fontSize = v;
+        if (ok) { c.fontSize = v;
+}
     }
 
     const QString family =

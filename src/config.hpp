@@ -22,6 +22,7 @@ struct Config {
     int timeoutCriticalMs = 15000; // default timeout for critical notifications
     int timerDefaultMs = 10000;    // bar drain for persistent notifications
     int historyMaxEntries = 100;   // max history entries retained
+    bool persistOnMinusOne = true; // expireTimeout == -1 (e.g. `notify-send -t -1`) stays until clicked
 
     QColor background{0x1e, 0x1e, 0x2e, 238};
     QColor textColor{0xcd, 0xd6, 0xf4};
@@ -33,7 +34,7 @@ struct Config {
     UrgencyStyle error{{0xf3, 0x8b, 0xa8}, {0xf3, 0x8b, 0xa8}};
     UrgencyStyle critical{{0xf3, 0x8b, 0xa8}, {0xfb, 0x49, 0x34}};
 
-    QString urgencyColorKey(int urgency) const;
+    static QString urgencyColorKey(int urgency) ;
 
     // Loads ~/.config/symm/config.conf (or $XDG_CONFIG_HOME). Falls back to defaults.
     static Config load();

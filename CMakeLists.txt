@@ -8,6 +8,8 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets DBus)
 find_package(QT NAMES Qt6 REQUIRED COMPONENTS Core Gui Widgets DBus)
 find_package(LayerShellQt REQUIRED)
@@ -19,10 +21,14 @@ add_executable(symm
     src/dbus/notificationserver.hpp
     src/dbus/notificationserver.cpp
     src/notification.hpp
-    src/ui/notificationwindow.hpp
-    src/ui/notificationwindow.cpp
+    src/ui/notificationcard.hpp
+    src/ui/notificationcard.cpp
+    src/ui/notificationcontainer.hpp
+    src/ui/notificationcontainer.cpp
     src/ui/notificationmanager.hpp
     src/ui/notificationmanager.cpp
+    src/ui/notificationhistorywindow.hpp
+    src/ui/notificationhistorywindow.cpp
     src/ui/timerbarwidget.hpp
     src/ui/timerbarwidget.cpp
 )

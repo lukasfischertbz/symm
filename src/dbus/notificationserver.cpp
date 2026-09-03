@@ -86,29 +86,38 @@ uint NotificationServer::Notify(const QString& appName, uint replacesId,
     int urgency = hints.value(QStringLiteral("urgency")).toInt(&ok);
     n.urgency = ok ? urgency : 1;
 
-    n.persist = (expireTimeout == -1) ||
-                hints.value(QStringLiteral("persistence")).toBool();
-
-    int timeout;
-    if (n.persist) {
-        // -1 or persistence hint: no timeout, stays until dismissed.
-        timeout = -1;
-    } else if (expireTimeout > 0) {
-        // App gave an explicit positive duration: honor it.
-        timeout = expireTimeout;
-    } else {
-        // 0 (server decides): pick a default based on urgency.
-        switch (n.urgency) {
-        case 1:  timeout = m_timeoutNormalMs;    break;
-        case 2:  timeout = m_timeoutCriticalMs; break;
-        default: timeout = m_timeoutDefaultMs;   break; // low/unset
-        }
+    // Timeout precedence (what you asked: `-t` controls it, config is the default).
+//   * expireTimeout > 0   -> exact auto-dismiss duration (CLI "off"). Never
+//                            overridden by config.
+//   * expireTimeout == -1 -> persistent IF persist_on_minus_one is on (CLI
+//                            "on"). This is what `notify-send -t -1` sends, and
+//                            also what a plain `notify-send` sends (no -t) —
+//                            they are indistinguishable, so the config flag is
+//                            the global default for that sentinel.
+//   * expireTimeout == 0  -> server-decided urgency default.
+n.persist = hints.value(QStringLiteral("persistence")).toBool();
+if (expireTimeout > 0) {
+    n.persist = false;
+} else if (expireTimeout == -1 && m_persistOnMinusOne) {
+    n.persist = true;
+}
+n.timeoutMs = 0;
+if (n.persist) {
+    n.timeoutMs = -1;
+} else if (expireTimeout > 0) {
+    n.timeoutMs = expireTimeout;
+} else {
+    // 0 / -1-with-persist-off: server-decided default based on urgency.
+    switch (n.urgency) {
+    case 1:  n.timeoutMs = m_timeoutNormalMs;    break;
+    case 2:  n.timeoutMs = m_timeoutCriticalMs; break;
+    default: n.timeoutMs = m_timeoutDefaultMs;   break; // low/unset
     }
-    n.timeoutMs = timeout;
-    n.actions = actions;
+}
+n.actions = actions;
 
-    qInfo("notify: urgency=%d expire=%d timeout=%d persist=%d",
-          n.urgency, expireTimeout, timeout, n.persist);
+    qInfo("notify: urgency=%d expire=%d timeout=%lld persist=%d",
+          n.urgency, expireTimeout, static_cast<long long>(n.timeoutMs), static_cast<int>(n.persist));
 
     m_active.insert(n.id);
     emit notificationReceived(n);
@@ -121,7 +130,7 @@ void NotificationServer::CloseNotification(uint id) {
 
 QVariantList NotificationServer::GetHistory() {
     QVariantList result;
-    if (!m_manager) {
+    if (m_manager == nullptr) {
         return result;
     }
     const auto history = m_manager->history();
@@ -137,4 +146,16 @@ QVariantList NotificationServer::GetHistory() {
         result.append(map);
     }
     return result;
+}
+
+void NotificationServer::ShowHistory() {
+    if (m_manager != nullptr) {
+        m_manager->showHistoryWindow();
+    }
+}
+
+void NotificationServer::ClearHistory() {
+    if (m_manager != nullptr) {
+        m_manager->clearHistory();
+    }
 }

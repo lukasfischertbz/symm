@@ -1,6 +1,7 @@
 #include "timerbarwidget.hpp"
 
 #include <QPainter>
+#include <algorithm>
 
 TimerBarWidget::TimerBarWidget(QWidget* parent)
     : QWidget(parent) {
@@ -35,7 +36,7 @@ void TimerBarWidget::onTick() {
     update(); // repaint uses the real elapsed time
 }
 
-void TimerBarWidget::paintEvent(QPaintEvent*) {
+void TimerBarWidget::paintEvent(QPaintEvent* /*event*/) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
 
@@ -46,10 +47,8 @@ void TimerBarWidget::paintEvent(QPaintEvent*) {
 
     double remaining = 1.0;
     if (m_durationMs > 0) {
-        remaining = 1.0 - static_cast<double>(m_elapsed.elapsed()) / m_durationMs;
-        if (remaining < 0.0) {
-            remaining = 0.0;
-        }
+        remaining = 1.0 - (static_cast<double>(m_elapsed.elapsed()) / m_durationMs);
+        remaining = std::max(remaining, 0.0);
     }
 
     if (remaining <= 0.0) {
@@ -57,7 +56,7 @@ void TimerBarWidget::paintEvent(QPaintEvent*) {
     }
 
     QRectF fill = track;
-    fill.setRight(track.left() + track.width() * remaining);
+    fill.setRight(track.left() + (track.width() * remaining));
     p.setBrush(m_barColor);
     p.drawRoundedRect(fill, 3.0, 3.0);
 }

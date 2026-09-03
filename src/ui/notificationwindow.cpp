@@ -36,26 +36,30 @@ NotificationWindow::NotificationWindow(const Notification& n, const Config& cfg,
 
     layoutContents(n);
 
+    auto* layout = static_cast<QVBoxLayout*>(this->layout());
+
+    // A bar only makes sense when the notification auto-dismisses on a timer.
+    // Notifications that stay until clicked (persistent, or no positive
+    // timeout) must show no bar. The bar and the dismiss timer are tied so
+    // they can never disagree.
+    const bool timed = !n.persist && n.timeoutMs > 0;
+
     m_timerBar = new TimerBarWidget(this);
     m_timerBar->setBarColor(m_style.bar);
-
-    auto* layout = static_cast<QVBoxLayout*>(this->layout());
+    m_timerBar->setVisible(timed);
     layout->addWidget(m_timerBar);
 
     layout->activate();
     int contentH = layout->sizeHint().height();
     setFixedSize(m_cfg.width, qMax(contentH, 70));
 
-    if (!n.persist && n.timeoutMs > 0) {
+    if (timed) {
         m_lifeTimer = new QTimer(this);
         m_lifeTimer->setInterval(n.timeoutMs);
         connect(m_lifeTimer, &QTimer::timeout, this, &NotificationWindow::onTimeoutFinished);
         m_lifeTimer->start();
+        m_timerBar->start(n.timeoutMs);
     }
-
-    // Timer bar: drain across the notification's lifetime, or stay full for
-    // persistent notifications until the user dismisses them.
-    m_timerBar->start(n.persist ? 0 : (n.timeoutMs > 0 ? n.timeoutMs : m_cfg.timerDefaultMs));
     show();
 }
 
