@@ -41,6 +41,9 @@ struct Config {
 
   bool useActiveMonitor = true; // (Hyprland only) place new notifications on
                                 // the currently focused monitor at send time
+  bool barMoveRight = false;    // grow the bar toward the right edge
+  bool barReverse = false;      // reverse the fill direction over time
+  bool barFill = true;          // start full and drain toward zero
 
   QColor background{0x1e, 0x1e, 0x2e, 238};
   double backgroundOpacity = 1.0; // kitty-style: 1.0 opaque, 0.0 transparent

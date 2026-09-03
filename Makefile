@@ -8,6 +8,8 @@ CMAKE      := cmake
 
 install: build
 	$(CMAKE) --install $(BUILD_DIR) --prefix $(PREFIX)
+	mkdir -p $(HOME)/.config/symm
+	@test -e $(HOME)/.config/symm/config.conf || cp config.conf $(HOME)/.config/symm/config.conf
 
 build:
 	$(CMAKE) -S . -B $(BUILD_DIR) -G Ninja --preset normal

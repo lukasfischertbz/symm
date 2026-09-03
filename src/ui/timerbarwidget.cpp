@@ -42,18 +42,33 @@ void TimerBarWidget::paintEvent(QPaintEvent * /*event*/) {
   p.setBrush(m_trackColor);
   p.drawRoundedRect(track, 3.0, 3.0);
 
-  double remaining = 1.0;
+  double fillRatio = 1.0;
   if (m_durationMs > 0) {
-    remaining = 1.0 - (static_cast<double>(m_elapsed.elapsed()) / m_durationMs);
-    remaining = std::max(remaining, 0.0);
+    const double elapsed = static_cast<double>(m_elapsed.elapsed());
+    const double elapsedRatio =
+        std::clamp(elapsed / static_cast<double>(m_durationMs), 0.0, 1.0);
+    const double remainingRatio = 1.0 - elapsedRatio;
+    fillRatio = m_fill ? elapsedRatio : remainingRatio;
+    if (m_reverse) {
+      fillRatio = 1.0 - fillRatio;
+    }
+    fillRatio = std::clamp(fillRatio, 0.0, 1.0);
   }
 
-  if (remaining <= 0.0) {
+  if (fillRatio <= 0.0) {
     return;
   }
 
   QRectF fill = track;
-  fill.setRight(track.left() + (track.width() * remaining));
+  const double fillWidth = track.width() * fillRatio;
+  if (m_moveRight) {
+    fill.setLeft(track.left());
+    fill.setRight(track.left() + fillWidth);
+  } else {
+    fill.setLeft(track.right() - fillWidth);
+    fill.setRight(track.right());
+  }
+
   p.setBrush(m_barColor);
   p.drawRoundedRect(fill, 3.0, 3.0);
 }

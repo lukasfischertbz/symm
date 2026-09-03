@@ -132,6 +132,9 @@ Config Config::load() {
   c.blurRadius = readInt(QStringLiteral("blur_radius"), c.blurRadius);
   c.useActiveMonitor =
       readBool(QStringLiteral("use_active_monitor"), c.useActiveMonitor);
+  c.barMoveRight = readBool(QStringLiteral("bar_move_right"), c.barMoveRight);
+  c.barReverse = readBool(QStringLiteral("bar_reverse"), c.barReverse);
+  c.barFill = readBool(QStringLiteral("bar_fill"), c.barFill);
 
   {
     bool ok = false;

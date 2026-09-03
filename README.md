@@ -112,9 +112,11 @@ to normal; `urgent_critical` to critical. Colors accept any QColor string.
 
 - [x] Timeout visualizer
 - [x] Actions
+- [x] Transparency
+- [ ] Presets
 - [ ] History
-- [ ] Details
+- [ ] Details (click a truncated notification to expand it)
 - [ ] Icons
+- [ ] App-side blur (kitty-style frosted background, any compositor)
+- [ ] Use active monitor (Hyprland; on send only)
 - [ ] Texture
-- [ ] Transparency
-- [ ] Use active monitor

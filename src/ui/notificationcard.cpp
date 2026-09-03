@@ -34,6 +34,9 @@ NotificationCard::NotificationCard(const Notification &n, const Config &cfg,
   auto *layout = static_cast<QVBoxLayout *>(this->layout());
   m_timerBar = new TimerBarWidget(this);
   m_timerBar->setBarColor(m_style.bar);
+  m_timerBar->setMoveRight(m_cfg.barMoveRight);
+  m_timerBar->setReverse(m_cfg.barReverse);
+  m_timerBar->setFill(m_cfg.barFill);
   m_timerBar->setVisible(m_timed);
   layout->addWidget(m_timerBar);
 

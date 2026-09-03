@@ -48,6 +48,9 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
 
   m_timerBar = new TimerBarWidget(this);
   m_timerBar->setBarColor(m_style.bar);
+  m_timerBar->setMoveRight(m_cfg.barMoveRight);
+  m_timerBar->setReverse(m_cfg.barReverse);
+  m_timerBar->setFill(m_cfg.barFill);
   m_timerBar->setVisible(timed);
   layout->addWidget(m_timerBar);
 
