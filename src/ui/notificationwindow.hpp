@@ -19,11 +19,11 @@ class QVBoxLayout;
 // Single floating notification card: an independent layer-shell surface so the
 // compositor can blur it as one rectangle (kitty-style frost). Each card is its
 // own window; the manager stacks them vertically via margins. Timed
-// notifications show a draining bar over their timeout; persistent ones over
-// timer_default. Both auto-dismiss when the bar empties (or on click).
-// Hovering a truncated body previews the full text. Notifications carrying
-// action keys get a row of buttons that emit actionInvoked(id, key) when
-// clicked.
+// notifications show a draining bar over their timeout and auto-dismiss when
+// it empties; persistent ones (the persistence hint, or expire 0) show no bar
+// and stay until clicked. Hovering a truncated body previews the full text.
+// Notifications carrying action keys get a row of buttons that emit
+// actionInvoked(id, key) when clicked.
 class NotificationWindow : public QWidget {
   Q_OBJECT
 public:
@@ -72,7 +72,6 @@ private:
   void relayoutForBodyChange();
 
   uint m_id;
-  int m_remainingMs;
   Config m_cfg;
   QScreen *m_targetScreen = nullptr;
   UrgencyStyle m_style;

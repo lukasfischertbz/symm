@@ -44,6 +44,8 @@ int main(int argc, char *argv[]) {
 #endif
 
   const Config cfg = Config::load();
+  qInfo("symm daemon v2: persistence stays until clicked; the timer bar is "
+        "only mounted for timed notifications");
 
   NotificationServer server(&app);
   server.setTimeouts(cfg.timeoutDefaultMs, cfg.timeoutNormalMs,

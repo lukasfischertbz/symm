@@ -25,7 +25,6 @@ struct Config {
       10000;                  // default timeout for unclassified notifications
   int timeoutNormalMs = 5000; // default timeout for normal notifications
   int timeoutCriticalMs = 15000; // default timeout for critical notifications
-  int timerDefaultMs = 10000;    // bar drain for persistent notifications
   int historyMaxEntries = 100;   // max history entries persisted to disk
   int historyRecentCount = 6;    // how many show in the compact "recent
                                  // activity" list (symm history)

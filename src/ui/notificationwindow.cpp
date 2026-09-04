@@ -99,8 +99,7 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
                                        QScreen *targetScreen, QWidget *parent)
     : QWidget(parent,
               Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint),
-      m_id(n.id), m_remainingMs(n.timeoutMs), m_cfg(cfg),
-      m_targetScreen(targetScreen) {
+      m_id(n.id), m_cfg(cfg), m_targetScreen(targetScreen) {
   // Pick the accent style for this notification's urgency.
   const QString key = m_cfg.urgencyColorKey(n.urgency);
   if (key == QStringLiteral("low")) {
@@ -133,11 +132,12 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
 
   auto *outer = static_cast<QVBoxLayout *>(this->layout());
 
-  // The bar tracks the remaining time: timed notifications drain over their
-  // timeout, persistent ones over timer_default. Both auto-dismiss when the
-  // bar empties (or on click), so the bar and the dismiss timer stay tied.
+  // The bar tracks the remaining time on notifications that auto-dismiss:
+  // timed ones drain over their exact timeout. Persistent ones (persistence
+  // hint / expire 0) stay until clicked; they get no bar at all -- the bar
+  // widget is only mounted into the layout when the notification is timed,
+  // so it can neither render nor reserve dead space.
   const bool timed = !n.persist && n.timeoutMs > 0;
-  const bool persistent = n.persist || n.timeoutMs <= 0;
 
   m_timerBar = new TimerBarWidget(this);
   m_timerBar->setBarColor(m_style.bar);
@@ -149,29 +149,34 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
   m_timerBar->setEdgeStyle(edgeBar);
   m_timerBar->setFillUp(m_cfg.barFill);
   m_timerBar->setMoveRight(m_cfg.barMoveRight);
-  m_timerBar->setVisible(timed || persistent);
+  m_timerBar->setVisible(timed);
 
-  if (edgeBar) {
-    // Flush with the card's literal border, no padding -- goes in the
-    // 0-margin outer layout, not the padded content column.
-    if (barAbove) {
-      outer->insertWidget(0, m_timerBar);
+  if (timed) {
+    if (edgeBar) {
+      // Flush with the card's literal border, no padding -- goes in the
+      // 0-margin outer layout, not the padded content column.
+      if (barAbove) {
+        outer->insertWidget(0, m_timerBar);
+      } else {
+        outer->addWidget(m_timerBar);
+      }
     } else {
-      outer->addWidget(m_timerBar);
-    }
-  } else {
-    // "inside" (default): padded like everything else, positioned above or
-    // below the message text within the content column.
-    if (barAbove) {
-      m_contentLayout->insertWidget(0, m_timerBar);
-    } else {
-      m_contentLayout->addWidget(m_timerBar);
+      // "inside" (default): padded like everything else, positioned above or
+      // below the message text within the content column.
+      if (barAbove) {
+        m_contentLayout->insertWidget(0, m_timerBar);
+      } else {
+        m_contentLayout->addWidget(m_timerBar);
+      }
     }
   }
 
   outer->activate();
   int contentH = outer->sizeHint().height();
-  setFixedSize(m_cfg.width, qMax(contentH, 70));
+  // Minimum height: timed cards keep a comfortable floor; bar-free cards
+  // size to their content so they don't inherit bar dead space.
+  const int minH = timed ? 70 : m_cfg.paddingV * 2 + m_cfg.gap;
+  setFixedSize(m_cfg.width, qMax(contentH, minH));
 
   if (timed) {
     m_lifeTimer = new QTimer(this);
@@ -180,17 +185,10 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
             &NotificationWindow::onTimeoutFinished);
     m_lifeTimer->start();
     m_timerBar->start(n.timeoutMs);
-  } else if (persistent) {
-    // Persistent cards get a bar draining over timer_default too, and the
-    // card closes when the bar empties (or when clicked). The bar and the
-    // dismiss timer stay tied so they can never disagree.
-    m_lifeTimer = new QTimer(this);
-    m_lifeTimer->setInterval(m_cfg.timerDefaultMs);
-    connect(m_lifeTimer, &QTimer::timeout, this,
-            &NotificationWindow::onTimeoutFinished);
-    m_lifeTimer->start();
-    m_timerBar->start(m_cfg.timerDefaultMs);
   }
+  // Persistent notifications get no life timer and no bar: they stay on
+  // screen until the user clicks them (or an action / CloseNotification is
+  // invoked). Hover-pause is a no-op for them because m_lifeTimer is null.
 
   if (targetScreen != nullptr) {
     // Force native window creation now so we can pin it to a specific
@@ -217,7 +215,8 @@ void NotificationWindow::setupLayerShell() {
   using Anchor = LayerShellQt::Window::Anchor;
   shell->setAnchors(QFlags<Anchor>(Anchor::AnchorTop) |
                     QFlags<Anchor>(Anchor::AnchorRight));
-  shell->setMargins(QMargins(0, m_cfg.top, m_cfg.margin, 0));
+  // Margins are owned exclusively by setTopOffset() (the manager's reflow)
+  // -- never set them here, or the first show clobbers the stacked position.
   shell->setExclusiveZone(-1); // no reserved space, floats over content
   shell->setKeyboardInteractivity(
       LayerShellQt::Window::KeyboardInteractivityNone);
@@ -249,6 +248,10 @@ void NotificationWindow::setTopOffset(int topMargin) {
   if (QWindow *handle = windowHandle()) {
     if (LayerShellQt::Window *shell = LayerShellQt::Window::get(handle)) {
       shell->setMargins(QMargins(0, topMargin, m, 0));
+      // LayerShellQt only re-commits the surface when a redraw is scheduled;
+      // a pure margin change (stack shift, e.g. the card above closing) would
+      // otherwise never reach the compositor and the card wouldn't move up.
+      handle->requestUpdate();
     }
   }
 }
@@ -354,7 +357,11 @@ void NotificationWindow::relayoutForBodyChange() {
   }
   outer->activate();
   const int contentH = outer->sizeHint().height();
-  setFixedSize(m_cfg.width, qMax(contentH, 70));
+  // Reuse the same per-type minimum as the constructor (timed cards keep the
+  // 70px floor; bar-free cards hug their content).
+  const bool timed = m_lifeTimer != nullptr;
+  const int minH = timed ? 70 : m_cfg.paddingV * 2 + m_cfg.gap;
+  setFixedSize(m_cfg.width, qMax(contentH, minH));
 
   updateBlurPanel();
   emit resized();

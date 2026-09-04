@@ -145,25 +145,29 @@ uint NotificationServer::Notify(const QString &appName, uint replacesId,
   int urgency = hints.value(QStringLiteral("urgency")).toInt(&ok);
   n.urgency = ok ? urgency : 1;
 
-  // Timeout precedence (`-t` wins, else the sentinel rules):
+  // Timeout precedence per the freedesktop spec (`-t` wins, else the
+  // sentinel rules):
   //   * expireTimeout > 0   -> exact auto-dismiss duration. Never overridden.
-  //   * expireTimeout == -1 -> persistent: stays until clicked. This is what
-  //                            `notify-send -t -1` sends, and also what a
-  //                            plain `notify-send` sends (no -t).
-  //   * expireTimeout == 0  -> server-decided urgency default.
+  //   * expireTimeout == 0  -> "never expires": stays until the user closes
+  //                            it. This is what `notify-send -t 0` sends.
+  //   * expireTimeout == -1 -> server decides: use this daemon's urgency
+  //                            default. This is what a plain `notify-send`
+  //                            sends (no -t), so it must NOT be treated as
+  //                            persistent.
+  // The nonstandard `persistence` hint (notify-send -h string:persistence:true)
+  // also means "never expires", unless an explicit positive -t overrides it.
   n.persist = hints.value(QStringLiteral("persistence")).toBool();
   if (expireTimeout > 0) {
     n.persist = false;
-  } else if (expireTimeout == -1) {
-    n.persist = true;
-  }
-  n.timeoutMs = 0;
-  if (n.persist) {
-    n.timeoutMs = -1;
-  } else if (expireTimeout > 0) {
     n.timeoutMs = expireTimeout;
+  } else if (expireTimeout == 0) {
+    n.persist = true;
+    n.timeoutMs = -1;
+  } else if (n.persist) {
+    // expireTimeout == -1 plus the persistence hint: never expires.
+    n.timeoutMs = -1;
   } else {
-    // expireTimeout == 0: server-decided default based on urgency.
+    // expireTimeout == -1: server-decided default based on urgency.
     switch (n.urgency) {
     case 1:
       n.timeoutMs = m_timeoutNormalMs;
@@ -178,9 +182,14 @@ uint NotificationServer::Notify(const QString &appName, uint replacesId,
   }
   n.actions = actions;
 
-  qInfo("notify: urgency=%d expire=%d timeout=%lld persist=%d", n.urgency,
-        expireTimeout, static_cast<long long>(n.timeoutMs),
-        static_cast<int>(n.persist));
+  qInfo("notify: urgency=%d expire=%d timeout=%lld persist=%d "
+        "persistenceHint='%s'",
+        n.urgency, expireTimeout, static_cast<long long>(n.timeoutMs),
+        static_cast<int>(n.persist),
+        hints.value(QStringLiteral("persistence"))
+            .toString()
+            .toUtf8()
+            .constData());
 
   m_active.insert(n.id);
   emit notificationReceived(n);

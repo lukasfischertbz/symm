@@ -83,7 +83,8 @@ font_size = 10.5
 timeout_low = 10000
 timeout_normal = 5000
 timeout_critical = 15000
-timer_default = 10000
+# Notifications sent with -h string:persistence:true (or notify-send -t 0)
+# never auto-dismiss -- they stay until clicked.
 
 [colors]
 background = #1e1e2e

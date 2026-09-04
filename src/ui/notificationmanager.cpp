@@ -191,10 +191,10 @@ void NotificationManager::reflow() {
     }
     const int top = topByScreen[screen];
     p->setTopOffset(top);
-    // sizeHint() reflects the card's *current* layout, so an expanded
-    // ("Details") card correctly pushes the next one on the same monitor
-    // further down.
-    topByScreen[screen] = top + p->sizeHint().height() + m_cfg.cardSpacing;
+    // Use the window's real (fixed) height, not sizeHint(): sizeHint() is the
+    // layout's preferred height, which for timed cards (70px floor) is less
+    // than the actual window height -- stacking by it overlaps the next card.
+    topByScreen[screen] = top + p->height() + m_cfg.cardSpacing;
   }
 }
 

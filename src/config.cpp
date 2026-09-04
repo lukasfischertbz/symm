@@ -133,7 +133,6 @@ Config Config::load() {
       readInt(QStringLiteral("timeout_normal"), c.timeoutNormalMs);
   c.timeoutCriticalMs =
       readInt(QStringLiteral("timeout_critical"), c.timeoutCriticalMs);
-  c.timerDefaultMs = readInt(QStringLiteral("timer_default"), c.timerDefaultMs);
   c.historyMaxEntries =
       readInt(QStringLiteral("history_max_entries"), c.historyMaxEntries);
   c.historyRecentCount =
