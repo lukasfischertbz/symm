@@ -9,14 +9,41 @@
 #include <QLabel>
 #include <QMargins>
 #include <QMouseEvent>
+#include <QMoveEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScreen>
 #include <QTimer>
 
 #include "blur.hpp"
 #include "texture.hpp"
+
+namespace {
+// Break a single run of text into lines that fit within maxWidth px.  This is
+// used for body text that contains no spaces (e.g. URLs, hashes) where
+// QLabel's word-wrap would otherwise let the text overflow.
+QString wrapPlainText(const QFont &f, const QString &text, int maxWidth) {
+  if (text.isEmpty() || maxWidth <= 0) {
+    return text;
+  }
+  const QFontMetrics fm(f);
+  QString result;
+  QString line;
+  for (const QChar &ch : text) {
+    const QString test = line + ch;
+    if (fm.horizontalAdvance(test) > maxWidth && !line.isEmpty()) {
+      result += line + QLatin1Char('\n');
+      line = ch;
+    } else {
+      line += ch;
+    }
+  }
+  result += line;
+  return result;
+}
+} // namespace
 
 NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
                                        QScreen *targetScreen, QWidget *parent)
@@ -169,6 +196,16 @@ void NotificationWindow::resizeEvent(QResizeEvent *event) {
   emit resized();
 }
 
+void NotificationWindow::moveEvent(QMoveEvent *event) {
+  QWidget::moveEvent(event);
+  // The compositor assigns the final position only after the layer-shell
+  // surface is configured, so the first showEvent capture may have used
+  // stale coordinates (see blur.hpp). Re-crop the backdrop now that the card
+  // actually sits where it will be drawn.
+  updateBlurPanel();
+  update();
+}
+
 void NotificationWindow::mousePressEvent(QMouseEvent *event) {
   emit dismissed(m_id);
   close();
@@ -196,12 +233,15 @@ void NotificationWindow::enterEvent(QEnterEvent *event) {
   }
 
   // Hovering a truncated body also previews the full text, same as a click
-  // but temporary: it collapses back on leaveEvent unless a click made it
-  // permanent in the meantime (see m_expanded vs. m_hoverTemporaryExpand).
-  if (m_truncated && !m_expanded && !m_hoverTemporaryExpand &&
-      m_bodyLabel != nullptr) {
+  // but temporary: it collapses back on leaveEvent (see
+  // m_hoverTemporaryExpand).
+  if (m_truncated && !m_hoverTemporaryExpand && m_bodyLabel != nullptr) {
     m_hoverTemporaryExpand = true;
-    m_bodyLabel->setText(m_fullBody);
+    QFont f(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize));
+    const int textMaxW =
+        m_cfg.width - 2 * m_cfg.paddingH -
+        (m_iconLabel != nullptr ? m_cfg.iconSize + m_cfg.gap + 4 : 0);
+    m_bodyLabel->setText(wrapPlainText(f, m_fullBody, textMaxW));
     relayoutForBodyChange();
   }
 
@@ -222,34 +262,17 @@ void NotificationWindow::leaveEvent(QEvent *event) {
     m_pausedRemainingMs = 0;
   }
 
-  if (m_hoverTemporaryExpand && !m_expanded && m_bodyLabel != nullptr) {
+  if (m_hoverTemporaryExpand && m_bodyLabel != nullptr) {
     m_hoverTemporaryExpand = false;
-    m_bodyLabel->setText(m_truncatedBody);
+    QFont f(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize));
+    const int textMaxW =
+        m_cfg.width - 2 * m_cfg.paddingH -
+        (m_iconLabel != nullptr ? m_cfg.iconSize + m_cfg.gap + 4 : 0);
+    m_bodyLabel->setText(wrapPlainText(f, m_truncatedBody, textMaxW));
     relayoutForBodyChange();
   }
 
   QWidget::leaveEvent(event);
-}
-
-void NotificationWindow::toggleExpand() {
-  if (!m_truncated || m_expanded || m_bodyLabel == nullptr) {
-    return;
-  }
-  m_expanded = true;
-  m_bodyLabel->setText(m_fullBody);
-
-  // Reading takes longer than the timeout allows -- stop the countdown while
-  // expanded rather than yanking the notification away mid-read.
-  if (m_lifeTimer) {
-    m_lifeTimer->stop();
-  }
-  m_pausedRemainingMs = 0;
-  if (m_timerBar) {
-    m_timerBar->stop();
-    m_timerBar->setVisible(false);
-  }
-
-  relayoutForBodyChange();
 }
 
 void NotificationWindow::relayoutForBodyChange() {
@@ -301,6 +324,14 @@ void NotificationWindow::layoutContents(const Notification &n) {
   auto *textCol = new QVBoxLayout;
   textCol->setSpacing(m_cfg.gap);
 
+  // Cap the text column width so that word wrap triggers even on long words
+  // without spaces. Without this Qt measures the label at its full intrinsic
+  // width before the outer widget's setFixedSize constraint is applied.
+  const int textMaxW =
+      m_cfg.width - 2 * m_cfg.paddingH -
+      (m_cfg.iconsEnabled && !n.icon.isNull() ? m_cfg.iconSize + m_cfg.gap + 4
+                                              : 0);
+
   if (!n.summary.isEmpty()) {
     m_summaryLabel = new QLabel(this);
     m_summaryLabel->setTextFormat(Qt::PlainText);
@@ -311,25 +342,34 @@ void NotificationWindow::layoutContents(const Notification &n) {
     m_summaryLabel->setStyleSheet(
         QStringLiteral("color: %1; background: transparent;").arg(fg));
     m_summaryLabel->setWordWrap(true);
+    m_summaryLabel->setFixedWidth(textMaxW);
     textCol->addWidget(m_summaryLabel);
   }
 
   if (!n.body.isEmpty()) {
-    m_fullBody = n.body;
-    m_truncated = n.body.size() > qMax(0, m_cfg.bodyTruncateChars);
-    m_truncatedBody = m_truncated
-                          ? n.body.left(m_cfg.bodyTruncateChars).trimmed() +
-                                QStringLiteral("…")
-                          : n.body;
+    // Normalize CRLF / lone CR to plain LF. Bodies arriving over D-Bus from
+    // Windows-origin apps carry \r\n, which QLabel's PlainText renderer does
+    // not collapse into line breaks -- it shows stray glyphs instead.
+    QString body = n.body;
+    body.remove(QLatin1Char('\r'));
+    m_fullBody = body;
+    m_truncated = body.size() > qMax(0, m_cfg.bodyTruncateChars);
+    m_truncatedBody =
+        m_truncated
+            ? body.left(m_cfg.bodyTruncateChars)
+                      .remove(QRegularExpression(QStringLiteral("\\s+$"))) +
+                  QStringLiteral("…")
+            : body;
 
     m_bodyLabel = new QLabel(this);
     m_bodyLabel->setTextFormat(Qt::PlainText);
-    m_bodyLabel->setText(m_truncatedBody);
     QFont f(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize));
     m_bodyLabel->setFont(f);
+    m_bodyLabel->setText(wrapPlainText(f, m_truncatedBody, textMaxW));
     m_bodyLabel->setStyleSheet(
         QStringLiteral("color: %1; background: transparent;").arg(dim));
     m_bodyLabel->setWordWrap(true);
+    m_bodyLabel->setFixedWidth(textMaxW);
     textCol->addWidget(m_bodyLabel);
   }
 

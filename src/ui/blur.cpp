@@ -1,14 +1,25 @@
 #include "blur.hpp"
 
-#include <QApplication>
 #include <QGraphicsBlurEffect>
 #include <QGraphicsPixmapItem>
 #include <QGraphicsScene>
+#include <QGuiApplication>
+#include <QImage>
 #include <QPainter>
 #include <QProcess>
 #include <QScreen>
 
 namespace {
+
+struct Snapshot {
+  QImage image;
+  // Global top-left corner of the captured region. grim's output pixel (0,0)
+  // is the top-left of the geometry given to -g, which is not always global
+  // (0,0) on multi-monitor setups with a left-of-primary display.
+  QPoint origin;
+};
+
+Snapshot s_snapshot;
 
 QPixmap gaussianBlur(const QPixmap &src, int radius) {
   if (src.isNull() || radius <= 0) {
@@ -30,47 +41,71 @@ QPixmap gaussianBlur(const QPixmap &src, int radius) {
   return out;
 }
 
-QPixmap captureViaGrim(const QRect &globalRect) {
+Snapshot fullScreenViaGrim() {
+  QRect area;
+  const QList<QScreen *> screens = QGuiApplication::screens();
+  for (QScreen *s : screens) {
+    area = area.united(s->geometry());
+  }
+  if (area.isEmpty()) {
+    return {};
+  }
   const QString geom = QStringLiteral("%1,%2,%3,%4")
-                           .arg(globalRect.x())
-                           .arg(globalRect.y())
-                           .arg(globalRect.width())
-                           .arg(globalRect.height());
+                           .arg(area.x())
+                           .arg(area.y())
+                           .arg(area.width())
+                           .arg(area.height());
 
   QProcess proc;
   proc.start(QStringLiteral("grim"),
              {QStringLiteral("-g"), geom, QStringLiteral("-t"),
               QStringLiteral("png"), QStringLiteral("-")});
-  if (!proc.waitForFinished(2000) || proc.exitCode() != 0) {
+  if (!proc.waitForFinished(5000) || proc.exitCode() != 0) {
     return {};
   }
-  QPixmap px;
-  px.loadFromData(proc.readAllStandardOutput(), "PNG");
-  return px;
+  const QImage img = QImage::fromData(proc.readAllStandardOutput(), "PNG");
+  if (img.isNull()) {
+    return {};
+  }
+  return {img.copy(), area.topLeft()};
 }
 
-QPixmap captureViaGrabWindow(const QRect &globalRect) {
-  if (QScreen *screen = QApplication::primaryScreen()) {
-    return screen->grabWindow(0, globalRect.x(), globalRect.y(),
-                              globalRect.width(), globalRect.height());
+Snapshot fullScreenViaGrab() {
+  QScreen *screen = QGuiApplication::primaryScreen();
+  if (screen == nullptr) {
+    return {};
   }
-  return {};
+  return {screen->grabWindow(0).toImage(), screen->geometry().topLeft()};
 }
 
 } // namespace
 
+void initBlurSource() {
+  s_snapshot = fullScreenViaGrim();
+  if (s_snapshot.image.isNull()) {
+    s_snapshot = fullScreenViaGrab();
+  }
+}
+
 QPixmap makeFrostedPanel(const QRect &globalRect, int blurRadius) {
-  if (globalRect.isEmpty()) {
+  if (globalRect.isEmpty() || s_snapshot.image.isNull()) {
     return {};
   }
 
-  QPixmap raw = captureViaGrim(globalRect);
-  if (raw.isNull()) {
-    raw = captureViaGrabWindow(globalRect);
+  // Translate the card's global rect into the snapshot's local coordinate
+  // space, then clamp to its bounds.
+  const QRect clip = globalRect.translated(-s_snapshot.origin)
+                         .intersected(s_snapshot.image.rect());
+  if (clip.isEmpty()) {
+    return {};
   }
+
+  const QPixmap raw = QPixmap::fromImage(s_snapshot.image.copy(clip));
   if (raw.isNull()) {
     return {};
   }
 
+  // The returned pixmap is exactly clip.size(), so the card paints it at
+  // (0,0) -- pixel-perfect under the card regardless of screen arrangement.
   return gaussianBlur(raw, blurRadius);
 }

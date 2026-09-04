@@ -7,6 +7,7 @@
 
 #include "config.hpp"
 #include "dbus/notificationserver.hpp"
+#include "ui/blur.hpp"
 #include "ui/notificationmanager.hpp"
 
 int main(int argc, char *argv[]) {
@@ -43,6 +44,14 @@ int main(int argc, char *argv[]) {
 #endif
 
   const Config cfg = Config::load();
+
+  // Grab a "clean" full-screen backdrop once, before any notification
+  // surfaces exist. Cards crop their own region out of this later; grabbing
+  // per-card would capture the card itself (self-blur) or run at stale
+  // pre-position coordinates (see blur.hpp).
+  if (cfg.blurEnabled) {
+    initBlurSource();
+  }
 
   NotificationServer server(&app);
   server.setTimeouts(cfg.timeoutDefaultMs, cfg.timeoutNormalMs,

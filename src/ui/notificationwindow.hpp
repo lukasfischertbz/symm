@@ -49,6 +49,7 @@ protected:
   void paintEvent(QPaintEvent *event) override;
   void showEvent(QShowEvent *event) override;
   void resizeEvent(QResizeEvent *event) override;
+  void moveEvent(QMoveEvent *event) override;
   void mousePressEvent(QMouseEvent *event) override;
   void enterEvent(QEnterEvent *event) override;
   void leaveEvent(QEvent *event) override;
@@ -62,7 +63,6 @@ private:
   void layoutContents(const Notification &n);
   void layoutActions(const QStringList &actions);
   void setupLayerShell();
-  void toggleExpand();
   void updateBlurPanel();
   // Shared tail of toggleExpand()/hover-expand: re-measures the (now
   // taller-or-shorter) content, resizes the window, and tells the manager
@@ -88,11 +88,10 @@ private:
   QWidget *m_actionsRowWidget = nullptr;
   bool m_actionsOutside = false;
 
-  // "Details" (click to expand truncated body).
+  // "Details" (hover to preview truncated body).
   QString m_fullBody;
   QString m_truncatedBody;
   bool m_truncated = false;
-  bool m_expanded = false;             // permanent, from a click
   bool m_hoverTemporaryExpand = false; // transient, collapses again on leave
 
   // True while relayoutForBodyChange() is running. On Wayland a window resize
