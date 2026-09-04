@@ -111,12 +111,6 @@ Config Config::load() {
       readInt(QStringLiteral("history_max_entries"), c.historyMaxEntries);
   c.historyRecentCount =
       readInt(QStringLiteral("history_recent_count"), c.historyRecentCount);
-  c.persistOnMinusOne =
-      ini.value(QStringLiteral("general"),
-                QStringLiteral("persist_on_minus_one")) ==
-          QStringLiteral("true") ||
-      ini.value(QStringLiteral("general"),
-                QStringLiteral("persist_on_minus_one")) == QStringLiteral("1");
 
   auto readBool = [&](const QString &key, bool fallback) {
     const QString v = ini.value(QStringLiteral("general"), key);

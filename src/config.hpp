@@ -29,8 +29,6 @@ struct Config {
   int historyMaxEntries = 100;   // max history entries persisted to disk
   int historyRecentCount = 6;    // how many show in the compact "recent
                                  // activity" list (symm history)
-  bool persistOnMinusOne = true; // expireTimeout == -1 (e.g. `notify-send -t
-                                 // -1`) stays until clicked
 
   bool iconsEnabled = true; // render app/notification icon when present
   int iconSize = 40;        // px, square

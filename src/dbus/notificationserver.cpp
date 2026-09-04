@@ -145,20 +145,16 @@ uint NotificationServer::Notify(const QString &appName, uint replacesId,
   int urgency = hints.value(QStringLiteral("urgency")).toInt(&ok);
   n.urgency = ok ? urgency : 1;
 
-  // Timeout precedence (what you asked: `-t` controls it, config is the
-  // default).
-  //   * expireTimeout > 0   -> exact auto-dismiss duration (CLI "off"). Never
-  //                            overridden by config.
-  //   * expireTimeout == -1 -> persistent IF persist_on_minus_one is on (CLI
-  //                            "on"). This is what `notify-send -t -1` sends,
-  //                            and also what a plain `notify-send` sends (no
-  //                            -t) — they are indistinguishable, so the config
-  //                            flag is the global default for that sentinel.
+  // Timeout precedence (`-t` wins, else the sentinel rules):
+  //   * expireTimeout > 0   -> exact auto-dismiss duration. Never overridden.
+  //   * expireTimeout == -1 -> persistent: stays until clicked. This is what
+  //                            `notify-send -t -1` sends, and also what a
+  //                            plain `notify-send` sends (no -t).
   //   * expireTimeout == 0  -> server-decided urgency default.
   n.persist = hints.value(QStringLiteral("persistence")).toBool();
   if (expireTimeout > 0) {
     n.persist = false;
-  } else if (expireTimeout == -1 && m_persistOnMinusOne) {
+  } else if (expireTimeout == -1) {
     n.persist = true;
   }
   n.timeoutMs = 0;
@@ -167,7 +163,7 @@ uint NotificationServer::Notify(const QString &appName, uint replacesId,
   } else if (expireTimeout > 0) {
     n.timeoutMs = expireTimeout;
   } else {
-    // 0 / -1-with-persist-off: server-decided default based on urgency.
+    // expireTimeout == 0: server-decided default based on urgency.
     switch (n.urgency) {
     case 1:
       n.timeoutMs = m_timeoutNormalMs;

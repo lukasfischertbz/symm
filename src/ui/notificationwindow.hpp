@@ -19,9 +19,11 @@ class QVBoxLayout;
 // Single floating notification card: an independent layer-shell surface so the
 // compositor can blur it as one rectangle (kitty-style frost). Each card is its
 // own window; the manager stacks them vertically via margins. Timed
-// notifications show a draining bar and auto-dismiss; persistent ones stay
-// until clicked with no bar. Notifications carrying action keys get a row of
-// buttons that emit actionInvoked(id, key) when clicked.
+// notifications show a draining bar over their timeout; persistent ones over
+// timer_default. Both auto-dismiss when the bar empties (or on click).
+// Hovering a truncated body previews the full text. Notifications carrying
+// action keys get a row of buttons that emit actionInvoked(id, key) when
+// clicked.
 class NotificationWindow : public QWidget {
   Q_OBJECT
 public:
@@ -64,10 +66,9 @@ private:
   void layoutActions(const QStringList &actions);
   void setupLayerShell();
   void updateBlurPanel();
-  void toggleExpand();
-  // Shared tail of toggleExpand()/hover-expand: re-measures the (now
-  // taller-or-shorter) content, resizes the window, and tells the manager
-  // to reflow so cards below shift accordingly.
+  // Shared tail of hover-expand: re-measures the (now taller-or-shorter)
+  // content, resizes the window, and tells the manager to reflow so cards
+  // below shift accordingly.
   void relayoutForBodyChange();
 
   uint m_id;
@@ -89,12 +90,11 @@ private:
   QWidget *m_actionsRowWidget = nullptr;
   bool m_actionsOutside = false;
 
-  // "Details" (click or hover to preview truncated body).
+  // "Details" (hover to preview truncated body).
   QString m_fullBody;
   QString m_truncatedBody;
   bool m_truncated = false;
   bool m_hoverTemporaryExpand = false; // transient, collapses again on leave
-  bool m_expanded = false;             // sticky full body after click
 
   // True while relayoutForBodyChange() is running. On Wayland a window resize
   // can synthesize enter/leave events, which would collapse a hover-expanded

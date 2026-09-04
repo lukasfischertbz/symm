@@ -133,10 +133,9 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
 
   auto *outer = static_cast<QVBoxLayout *>(this->layout());
 
-  // A bar tracks the auto-dismiss countdown for timed notifications. Persistent
-  // notifications stay until clicked (no dismiss timer) but still show a bar
-  // that drains over timer_default ("reverse fill" era feature restored) just
-  // as an age indicator.
+  // The bar tracks the remaining time: timed notifications drain over their
+  // timeout, persistent ones over timer_default. Both auto-dismiss when the
+  // bar empties (or on click), so the bar and the dismiss timer stay tied.
   const bool timed = !n.persist && n.timeoutMs > 0;
   const bool persistent = n.persist || n.timeoutMs <= 0;
 
@@ -182,6 +181,14 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
     m_lifeTimer->start();
     m_timerBar->start(n.timeoutMs);
   } else if (persistent) {
+    // Persistent cards get a bar draining over timer_default too, and the
+    // card closes when the bar empties (or when clicked). The bar and the
+    // dismiss timer stay tied so they can never disagree.
+    m_lifeTimer = new QTimer(this);
+    m_lifeTimer->setInterval(m_cfg.timerDefaultMs);
+    connect(m_lifeTimer, &QTimer::timeout, this,
+            &NotificationWindow::onTimeoutFinished);
+    m_lifeTimer->start();
     m_timerBar->start(m_cfg.timerDefaultMs);
   }
 
@@ -263,31 +270,11 @@ void NotificationWindow::moveEvent(QMoveEvent *event) {
 }
 
 void NotificationWindow::mousePressEvent(QMouseEvent *event) {
-  // If the body is truncated, the first click expands it ("Details") so you
-  // can actually read it. Once expanded (or if there was nothing to expand), a
-  // click dismisses as before.
-  if (m_truncated && !m_expanded) {
-    toggleExpand();
-    QWidget::mousePressEvent(event);
-    return;
-  }
+  // One click always dismisses; the full body is previewed on hover instead
+  // of expanding on click (so a click never needs a second one to go away).
   emit dismissed(m_id);
   close();
   QWidget::mousePressEvent(event);
-}
-
-void NotificationWindow::toggleExpand() {
-  if (!m_truncated || m_expanded || m_bodyLabel == nullptr) {
-    return;
-  }
-  m_expanded = true;
-  m_hoverTemporaryExpand = false;
-  QFont f(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize));
-  const int textMaxW =
-      m_cfg.width - 2 * m_cfg.paddingH -
-      (m_iconLabel != nullptr ? m_cfg.iconSize + m_cfg.gap + 4 : 0);
-  m_bodyLabel->setText(wrapPlainText(f, m_fullBody, textMaxW));
-  relayoutForBodyChange();
 }
 
 void NotificationWindow::enterEvent(QEnterEvent *event) {
@@ -313,8 +300,7 @@ void NotificationWindow::enterEvent(QEnterEvent *event) {
   // Hovering a truncated body also previews the full text, same as a click
   // but temporary: it collapses back on leaveEvent (see
   // m_hoverTemporaryExpand).
-  if (m_truncated && !m_expanded && !m_hoverTemporaryExpand &&
-      m_bodyLabel != nullptr) {
+  if (m_truncated && !m_hoverTemporaryExpand && m_bodyLabel != nullptr) {
     m_hoverTemporaryExpand = true;
     QFont f(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize));
     const int textMaxW =
@@ -345,10 +331,9 @@ void NotificationWindow::leaveEvent(QEvent *event) {
     m_pausedRemainingMs = 0;
   }
 
-  if (m_hoverTemporaryExpand && !m_expanded && m_bodyLabel != nullptr) {
+  if (m_hoverTemporaryExpand && m_bodyLabel != nullptr) {
     m_hoverTemporaryExpand = false;
-    // A sticky (clicked) expansion must survive pointer leave; only shrink
-    // the temporary hover preview back down.
+    // Only the temporary hover preview shrinks back down on leave.
     QFont f(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize));
     const int textMaxW =
         m_cfg.width - 2 * m_cfg.paddingH -

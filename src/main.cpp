@@ -47,7 +47,7 @@ int main(int argc, char *argv[]) {
 
   NotificationServer server(&app);
   server.setTimeouts(cfg.timeoutDefaultMs, cfg.timeoutNormalMs,
-                     cfg.timeoutCriticalMs, cfg.persistOnMinusOne);
+                     cfg.timeoutCriticalMs);
 
   if (!NotificationServer::acquireServiceName()) {
     qCritical() << "Could not take org.freedesktop.Notifications;"

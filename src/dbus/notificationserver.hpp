@@ -18,12 +18,10 @@ class NotificationServer : public QObject, protected QDBusContext {
 public:
   explicit NotificationServer(QObject *parent = nullptr);
 
-  void setTimeouts(int defaultMs, int normalMs, int criticalMs,
-                   bool persistMinusOne) {
+  void setTimeouts(int defaultMs, int normalMs, int criticalMs) {
     m_timeoutDefaultMs = defaultMs;
     m_timeoutNormalMs = normalMs;
     m_timeoutCriticalMs = criticalMs;
-    m_persistOnMinusOne = persistMinusOne;
   }
 
   void setManager(NotificationManager *manager) { m_manager = manager; }
@@ -63,7 +61,6 @@ private:
   int m_timeoutDefaultMs = 10000;
   int m_timeoutNormalMs = 5000;
   int m_timeoutCriticalMs = 15000;
-  bool m_persistOnMinusOne = false;
   QSet<uint> m_active;
   NotificationManager *m_manager = nullptr;
 };
