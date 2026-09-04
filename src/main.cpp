@@ -45,14 +45,6 @@ int main(int argc, char *argv[]) {
 
   const Config cfg = Config::load();
 
-  // Grab a "clean" full-screen backdrop once, before any notification
-  // surfaces exist. Cards crop their own region out of this later; grabbing
-  // per-card would capture the card itself (self-blur) or run at stale
-  // pre-position coordinates (see blur.hpp).
-  if (cfg.blurEnabled) {
-    initBlurSource();
-  }
-
   NotificationServer server(&app);
   server.setTimeouts(cfg.timeoutDefaultMs, cfg.timeoutNormalMs,
                      cfg.timeoutCriticalMs, cfg.persistOnMinusOne);
@@ -65,6 +57,16 @@ int main(int argc, char *argv[]) {
   if (!server.registerObject()) {
     qCritical() << "Could not register /org/freedesktop/Notifications";
     return 1;
+  }
+
+  // Grab a "clean" full-screen backdrop once, before the daemon starts
+  // processing notifications. Cards crop their own region out of this later;
+  // grabbing per-card would capture the card itself (self-blur) or run at
+  // stale pre-position coordinates (see blur.hpp). Done after the D-Bus name
+  // is taken and the object registered so a slow/failing capture (grim absent,
+  // early boot before the compositor painted) never blocks service bring-up.
+  if (cfg.blurEnabled) {
+    initBlurSource();
   }
 
   NotificationManager manager(cfg, &app);

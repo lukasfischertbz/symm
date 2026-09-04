@@ -15,15 +15,17 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScreen>
+#include <QStringList>
 #include <QTimer>
 
 #include "blur.hpp"
 #include "texture.hpp"
 
 namespace {
-// Break a single run of text into lines that fit within maxWidth px.  This is
-// used for body text that contains no spaces (e.g. URLs, hashes) where
-// QLabel's word-wrap would otherwise let the text overflow.
+// Break a single run of text into lines that fit within maxWidth px. Wraps at
+// word boundaries like QLabel's word-wrap (which it mirrors), but splits long
+// space-less runs (URLs, hashes) mid-word so they never overflow. Explicit
+// newlines in the source are preserved.
 QString wrapPlainText(const QFont &f, const QString &text, int maxWidth) {
   if (text.isEmpty() || maxWidth <= 0) {
     return text;
@@ -31,15 +33,63 @@ QString wrapPlainText(const QFont &f, const QString &text, int maxWidth) {
   const QFontMetrics fm(f);
   QString result;
   QString line;
-  for (const QChar &ch : text) {
-    const QString test = line + ch;
-    if (fm.horizontalAdvance(test) > maxWidth && !line.isEmpty()) {
-      result += line + QLatin1Char('\n');
-      line = ch;
-    } else {
-      line += ch;
+  QString word;
+  bool pendingSpace = false;
+
+  auto flushWord = [&]() {
+    if (word.isEmpty()) {
+      return;
     }
+    const bool fitsNext =
+        line.isEmpty()
+            ? fm.horizontalAdvance(word) <= maxWidth
+            : fm.horizontalAdvance(line + QLatin1Char(' ') + word) <= maxWidth;
+    if (fitsNext) {
+      if (pendingSpace && !line.isEmpty()) {
+        line += QLatin1Char(' ');
+      }
+      line += word;
+    } else {
+      if (!line.isEmpty()) {
+        result += line + QLatin1Char('\n');
+        line.clear();
+      }
+      // The word alone overflows the width (URLs, hashes): hard-break it
+      // character by character so it still fits.
+      if (fm.horizontalAdvance(word) > maxWidth) {
+        QString piece;
+        for (const QChar &ch : word) {
+          if (fm.horizontalAdvance(piece + ch) > maxWidth && !piece.isEmpty()) {
+            result += piece + QLatin1Char('\n');
+            piece = ch;
+          } else {
+            piece += ch;
+          }
+        }
+        line = piece;
+      } else {
+        line = word;
+      }
+    }
+    word.clear();
+    pendingSpace = true;
+  };
+
+  for (const QChar &ch : text) {
+    if (ch == QLatin1Char('\n')) {
+      flushWord();
+      result += line + QLatin1Char('\n');
+      line.clear();
+      pendingSpace = false;
+      continue;
+    }
+    if (ch.isSpace()) {
+      flushWord();
+      continue;
+    }
+    word += ch;
   }
+  flushWord();
   result += line;
   return result;
 }
@@ -83,11 +133,12 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
 
   auto *outer = static_cast<QVBoxLayout *>(this->layout());
 
-  // A bar only makes sense when the notification auto-dismisses on a timer.
-  // Notifications that stay until clicked (persistent, or no positive
-  // timeout) must show no bar. The bar and the dismiss timer are tied so
-  // they can never disagree.
+  // A bar tracks the auto-dismiss countdown for timed notifications. Persistent
+  // notifications stay until clicked (no dismiss timer) but still show a bar
+  // that drains over timer_default ("reverse fill" era feature restored) just
+  // as an age indicator.
   const bool timed = !n.persist && n.timeoutMs > 0;
+  const bool persistent = n.persist || n.timeoutMs <= 0;
 
   m_timerBar = new TimerBarWidget(this);
   m_timerBar->setBarColor(m_style.bar);
@@ -97,7 +148,9 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
   const bool edgeBar = m_cfg.barStyle == QStringLiteral("edge");
   const bool barAbove = m_cfg.barPosition == QStringLiteral("above");
   m_timerBar->setEdgeStyle(edgeBar);
-  m_timerBar->setVisible(timed);
+  m_timerBar->setFillUp(m_cfg.barFill);
+  m_timerBar->setMoveRight(m_cfg.barMoveRight);
+  m_timerBar->setVisible(timed || persistent);
 
   if (edgeBar) {
     // Flush with the card's literal border, no padding -- goes in the
@@ -128,6 +181,8 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
             &NotificationWindow::onTimeoutFinished);
     m_lifeTimer->start();
     m_timerBar->start(n.timeoutMs);
+  } else if (persistent) {
+    m_timerBar->start(m_cfg.timerDefaultMs);
   }
 
   if (targetScreen != nullptr) {
@@ -177,7 +232,8 @@ void NotificationWindow::updateBlurPanel() {
   // A real screen grab + gaussian blur is too slow to redo every paint, so
   // it's cached here and only regenerated on show/resize/expand.
   const QRect globalRect(mapToGlobal(QPoint(0, 0)), size());
-  m_blurPanel = makeFrostedPanel(globalRect, m_cfg.blurRadius);
+  m_blurPanel =
+      makeFrostedPanel(globalRect, m_cfg.blurRadius, m_cfg.background);
   update();
 }
 
@@ -207,9 +263,31 @@ void NotificationWindow::moveEvent(QMoveEvent *event) {
 }
 
 void NotificationWindow::mousePressEvent(QMouseEvent *event) {
+  // If the body is truncated, the first click expands it ("Details") so you
+  // can actually read it. Once expanded (or if there was nothing to expand), a
+  // click dismisses as before.
+  if (m_truncated && !m_expanded) {
+    toggleExpand();
+    QWidget::mousePressEvent(event);
+    return;
+  }
   emit dismissed(m_id);
   close();
   QWidget::mousePressEvent(event);
+}
+
+void NotificationWindow::toggleExpand() {
+  if (!m_truncated || m_expanded || m_bodyLabel == nullptr) {
+    return;
+  }
+  m_expanded = true;
+  m_hoverTemporaryExpand = false;
+  QFont f(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize));
+  const int textMaxW =
+      m_cfg.width - 2 * m_cfg.paddingH -
+      (m_iconLabel != nullptr ? m_cfg.iconSize + m_cfg.gap + 4 : 0);
+  m_bodyLabel->setText(wrapPlainText(f, m_fullBody, textMaxW));
+  relayoutForBodyChange();
 }
 
 void NotificationWindow::enterEvent(QEnterEvent *event) {
@@ -235,7 +313,8 @@ void NotificationWindow::enterEvent(QEnterEvent *event) {
   // Hovering a truncated body also previews the full text, same as a click
   // but temporary: it collapses back on leaveEvent (see
   // m_hoverTemporaryExpand).
-  if (m_truncated && !m_hoverTemporaryExpand && m_bodyLabel != nullptr) {
+  if (m_truncated && !m_expanded && !m_hoverTemporaryExpand &&
+      m_bodyLabel != nullptr) {
     m_hoverTemporaryExpand = true;
     QFont f(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize));
     const int textMaxW =
@@ -254,16 +333,22 @@ void NotificationWindow::leaveEvent(QEvent *event) {
     return;
   }
 
-  if (m_pausedRemainingMs > 0 && m_lifeTimer) {
+  if (m_lifeTimer != nullptr && !m_lifeTimer->isActive()) {
+    // Resume even when 0 was captured: a hover landing in the final instant
+    // (remainingTime() == 0) must still re-arm the dismiss timer, otherwise
+    // the notification stays frozen forever (QTimer::start(0) fires on the
+    // next event loop turn, which is exactly when it should have gone).
     m_lifeTimer->start(m_pausedRemainingMs);
-    if (m_timerBar) {
+    if (m_timerBar != nullptr) {
       m_timerBar->resume();
     }
     m_pausedRemainingMs = 0;
   }
 
-  if (m_hoverTemporaryExpand && m_bodyLabel != nullptr) {
+  if (m_hoverTemporaryExpand && !m_expanded && m_bodyLabel != nullptr) {
     m_hoverTemporaryExpand = false;
+    // A sticky (clicked) expansion must survive pointer leave; only shrink
+    // the temporary hover preview back down.
     QFont f(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize));
     const int textMaxW =
         m_cfg.width - 2 * m_cfg.paddingH -

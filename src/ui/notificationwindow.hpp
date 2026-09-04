@@ -64,6 +64,7 @@ private:
   void layoutActions(const QStringList &actions);
   void setupLayerShell();
   void updateBlurPanel();
+  void toggleExpand();
   // Shared tail of toggleExpand()/hover-expand: re-measures the (now
   // taller-or-shorter) content, resizes the window, and tells the manager
   // to reflow so cards below shift accordingly.
@@ -88,11 +89,12 @@ private:
   QWidget *m_actionsRowWidget = nullptr;
   bool m_actionsOutside = false;
 
-  // "Details" (hover to preview truncated body).
+  // "Details" (click or hover to preview truncated body).
   QString m_fullBody;
   QString m_truncatedBody;
   bool m_truncated = false;
   bool m_hoverTemporaryExpand = false; // transient, collapses again on leave
+  bool m_expanded = false;             // sticky full body after click
 
   // True while relayoutForBodyChange() is running. On Wayland a window resize
   // can synthesize enter/leave events, which would collapse a hover-expanded

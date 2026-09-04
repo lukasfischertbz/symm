@@ -59,6 +59,11 @@ void TimerBarWidget::onTick() {
     update();
     return;
   }
+  // Once the bar has fully drained/filled (no dismiss timer attached, e.g.
+  // persistent notifications) stop ticking so it does not repaint forever.
+  if (effectiveElapsed() >= m_durationMs) {
+    m_timer.stop();
+  }
   update(); // repaint uses the real elapsed time
 }
 
@@ -75,9 +80,12 @@ void TimerBarWidget::paintEvent(QPaintEvent * /*event*/) {
 
   double remaining = 1.0;
   if (m_durationMs > 0) {
-    remaining = 1.0 - (static_cast<double>(effectiveElapsed()) /
-                       static_cast<double>(m_durationMs));
-    remaining = std::max(remaining, 0.0);
+    const double fraction = static_cast<double>(effectiveElapsed()) /
+                            static_cast<double>(m_durationMs);
+    // bar_fill: false shows remaining time (the bar drains), true fills up
+    // with elapsed time instead (reverse fill, starting empty).
+    remaining = m_fillUp ? fraction : (1.0 - fraction);
+    remaining = std::clamp(remaining, 0.0, 1.0);
   }
 
   if (remaining <= 0.0) {
@@ -85,7 +93,14 @@ void TimerBarWidget::paintEvent(QPaintEvent * /*event*/) {
   }
 
   QRectF fill = track;
-  fill.setRight(track.left() + (track.width() * remaining));
+  // bar_move_right: fill pinned to the right edge by default (false), so as
+  // it drains the accent part leaves the left side open; move_right = true
+  // pins it to the left edge instead.
+  if (m_moveRight) {
+    fill.setRight(track.left() + (track.width() * remaining));
+  } else {
+    fill.setLeft(track.right() - (track.width() * remaining));
+  }
 
   if (!m_frames.isEmpty()) {
     const int idx = currentFrameIndex();

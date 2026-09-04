@@ -62,6 +62,15 @@ struct Config {
   QString barStyle = QStringLiteral("inside");             // inside | edge
   QString barPosition = QStringLiteral("below");           // above | below
 
+  // Timer-bar fill behavior ("reverse fill").
+  // barFill: false = bar drains remaining time (fills shrink with time);
+  //          true = bar fills up with elapsed time instead (starts empty).
+  // barMoveRight: false = fill pinned to the right edge (as it drains, the
+  //               left side of the bar empties); true = fill pinned to the
+  //               left edge instead.
+  bool barFill = false;
+  bool barMoveRight = false;
+
   bool backgroundImageAnchored = false; // when true, backgroundImage is
                                         // treated as one image the size of
                                         // the screen, and each card shows

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QColor>
 #include <QPixmap>
 #include <QRect>
 
@@ -14,6 +15,8 @@
 // out of this static snapshot.
 //
 // makeFrostedPanel() crops `globalRect` out of the cached snapshot and blurs
-// it. Returns a NULL pixmap if initBlurSource() never populated the snapshot.
+// it. When no real capture is available it falls back to a synthesized
+// frosted-glass panel in `tint` so cards never render as flat/black.
 void initBlurSource();
-QPixmap makeFrostedPanel(const QRect &globalRect, int blurRadius);
+QPixmap makeFrostedPanel(const QRect &globalRect, int blurRadius,
+                         const QColor &tint);

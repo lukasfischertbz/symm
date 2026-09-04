@@ -154,6 +154,8 @@ Config Config::load() {
       readStr(QStringLiteral("action_button_position"), c.actionButtonPosition);
   c.barStyle = readStr(QStringLiteral("bar_style"), c.barStyle);
   c.barPosition = readStr(QStringLiteral("bar_position"), c.barPosition);
+  c.barFill = readBool(QStringLiteral("bar_fill"), c.barFill);
+  c.barMoveRight = readBool(QStringLiteral("bar_move_right"), c.barMoveRight);
   c.backgroundImageAnchored = readBool(
       QStringLiteral("background_image_anchored"), c.backgroundImageAnchored);
 

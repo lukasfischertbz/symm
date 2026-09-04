@@ -44,6 +44,21 @@ public:
     update();
   }
 
+  // Whether the bar drains remaining time (false, default) or fills up with
+  // elapsed time starting empty (true). Mirrors config "bar_fill".
+  void setFillUp(bool fillUp) {
+    m_fillUp = fillUp;
+    update();
+  }
+
+  // Where the fill sits as it drains: false (default) pins it to the right
+  // edge (the left side empties), true pins it to the left edge instead.
+  // Mirrors config "bar_move_right".
+  void setMoveRight(bool moveRight) {
+    m_moveRight = moveRight;
+    update();
+  }
+
   QSize sizeHint() const override { return QSize(340, 6); }
 
 protected:
@@ -66,4 +81,6 @@ private:
   qint64 m_pauseStart = 0;
   qint64 m_totalPauseMs = 0;
   bool m_edgeStyle = false;
+  bool m_fillUp = false;
+  bool m_moveRight = false;
 };
