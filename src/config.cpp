@@ -2,12 +2,10 @@
 
 #include <algorithm>
 
-#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QMap>
 #include <QStandardPaths>
-#include <QStringList>
 
 namespace {
 
@@ -86,17 +84,20 @@ QString Config::urgencyColorKey(int urgency) {
 
 Config Config::load() {
   const QString dir =
-      QStandardPaths::writableLocation(QStandardPaths::ConfigLocation);
+      QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) +
+      QStringLiteral("/symm");
 
   // Layered config, highest precedence first:
-  //   symm.user.ini > symm.theme.ini > symm.sys.ini > symm.ini
+  //   symm.user.ini > symm.theme.ini > symm.sys.ini > symm.ini/config.conf
   // Missing layers are skipped. The legacy config.conf doubles as the base
   // layer until it is renamed to symm.ini.
   IniData ini;
   const QString basePath = QDir(dir).filePath(QStringLiteral("symm.ini"));
-  if (!ini.parse(basePath) &&
-      !ini.parse(QDir(dir).filePath(QStringLiteral("config.conf")))) {
-    return Config{};
+  // Base layer: symm.ini, else legacy config.conf. Never bail out -- with no
+  // base file the layers above still apply (over Config defaults), otherwise a
+  // missing base would silently swallow every theme/user color.
+  if (!ini.parse(basePath)) {
+    ini.parse(QDir(dir).filePath(QStringLiteral("config.conf")));
   }
 
   IniData layer;
@@ -108,29 +109,6 @@ Config Config::load() {
   }
   if (layer.parse(QDir(dir).filePath(QStringLiteral("symm.user.ini")))) {
     ini.merge(layer);
-  }
-
-  // Theme argument: `theme = <name>` in [general] layers
-  // ~/.config/symm/themes/<name>.conf over whatever came before it.
-  const QString themeName =
-      ini.value(QStringLiteral("general"), QStringLiteral("theme"));
-  if (!themeName.isEmpty()) {
-    bool valid = true;
-    for (const QChar &ch : themeName) {
-      if (!ch.isAlphanumeric() && ch != QLatin1Char('-') &&
-          ch != QLatin1Char('_')) {
-        valid = false;
-        break;
-      }
-    }
-    const QString themePath =
-        QDir(dir).filePath(QStringLiteral("themes/%1.conf").arg(themeName));
-    if (valid && layer.parse(themePath)) {
-      ini.merge(layer);
-    } else {
-      qWarning().noquote() << "symm: theme" << themeName << "not found at"
-                           << themePath << "- ignoring";
-    }
   }
 
   Config c;

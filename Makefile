@@ -4,7 +4,7 @@ BIN        := symm
 
 CMAKE      := cmake
 
-.PHONY: build install uninstall clear run
+.PHONY: build install uninstall clear run theme
 
 install: build
 	$(CMAKE) --install $(BUILD_DIR) --prefix $(PREFIX)
@@ -25,6 +25,9 @@ clear:
 
 run:
 	setsid $(PREFIX)/bin/$(BIN) >/tmp/symm.log 2>&1 < /dev/null &
+
+theme:
+	bash themes/theme.sh
 
 tidy:
 	$(CMAKE) -S . -B $(BUILD_DIR) -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
