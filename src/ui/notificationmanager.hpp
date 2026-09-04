@@ -43,10 +43,17 @@ private:
   void loadHistory();
   void saveHistory() const;
   void reflow();
+  void displayNow(const Notification &n);
+  void promoteFromQueue();
 
   Config m_cfg;
   bool m_removing = false;
   QList<QPointer<NotificationWindow>> m_windows;
+  // Notifications waiting for a free slot (see config.maxVisible). Nothing
+  // here has a NotificationWindow yet, so its auto-dismiss timer hasn't
+  // started -- it only starts once the notification is actually promoted to
+  // m_windows and shown.
+  QList<Notification> m_pending;
   QList<HistoryEntry> m_history;
   QPointer<NotificationHistoryWindow> m_historyWindow;
 };

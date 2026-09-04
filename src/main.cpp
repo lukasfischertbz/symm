@@ -38,7 +38,9 @@ int main(int argc, char *argv[]) {
 
   // Enable wlr-layer-shell BEFORE any windows are created so notifications
   // float as true overlay surfaces (not tiled windows).
+#if QT_VERSION < QT_VERSION_CHECK(6, 6, 0)
   LayerShellQt::Shell::useLayerShell();
+#endif
 
   const Config cfg = Config::load();
 

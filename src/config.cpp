@@ -33,7 +33,7 @@ struct IniData {
         current = raw.mid(1, raw.size() - 2).trimmed();
         continue;
       }
-      const int eq = raw.indexOf(QLatin1Char('='));
+      const int eq = static_cast<int>(raw.indexOf(QLatin1Char('=')));
       if (eq < 0) {
         continue;
       }
@@ -109,6 +109,8 @@ Config Config::load() {
   c.timerDefaultMs = readInt(QStringLiteral("timer_default"), c.timerDefaultMs);
   c.historyMaxEntries =
       readInt(QStringLiteral("history_max_entries"), c.historyMaxEntries);
+  c.historyRecentCount =
+      readInt(QStringLiteral("history_recent_count"), c.historyRecentCount);
   c.persistOnMinusOne =
       ini.value(QStringLiteral("general"),
                 QStringLiteral("persist_on_minus_one")) ==
@@ -132,9 +134,28 @@ Config Config::load() {
   c.blurRadius = readInt(QStringLiteral("blur_radius"), c.blurRadius);
   c.useActiveMonitor =
       readBool(QStringLiteral("use_active_monitor"), c.useActiveMonitor);
-  c.barMoveRight = readBool(QStringLiteral("bar_move_right"), c.barMoveRight);
-  c.barReverse = readBool(QStringLiteral("bar_reverse"), c.barReverse);
-  c.barFill = readBool(QStringLiteral("bar_fill"), c.barFill);
+
+  c.backgroundImage =
+      ini.value(QStringLiteral("general"), QStringLiteral("background_image"));
+  c.barImage =
+      ini.value(QStringLiteral("general"), QStringLiteral("bar_image"));
+  c.iconSourceDir =
+      ini.value(QStringLiteral("general"), QStringLiteral("icon_source_dir"));
+
+  c.maxVisible = readInt(QStringLiteral("max_visible"), c.maxVisible);
+
+  auto readStr = [&](const QString &key, const QString &fallback) {
+    const QString v = ini.value(QStringLiteral("general"), key);
+    return v.isEmpty() ? fallback : v;
+  };
+  c.actionButtonStyle =
+      readStr(QStringLiteral("action_button_style"), c.actionButtonStyle);
+  c.actionButtonPosition =
+      readStr(QStringLiteral("action_button_position"), c.actionButtonPosition);
+  c.barStyle = readStr(QStringLiteral("bar_style"), c.barStyle);
+  c.barPosition = readStr(QStringLiteral("bar_position"), c.barPosition);
+  c.backgroundImageAnchored = readBool(
+      QStringLiteral("background_image_anchored"), c.backgroundImageAnchored);
 
   {
     bool ok = false;

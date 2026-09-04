@@ -33,6 +33,8 @@ add_executable(symm
     src/ui/timerbarwidget.cpp
     src/ui/blur.hpp
     src/ui/blur.cpp
+    src/ui/texture.hpp
+    src/ui/texture.cpp
 )
 
 target_link_libraries(symm PRIVATE

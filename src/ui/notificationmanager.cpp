@@ -5,9 +5,12 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QHash>
+#include <QIcon>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QPixmap>
 #include <QScreen>
 #include <QStandardPaths>
 #include <QTimer>
@@ -15,6 +18,7 @@
 #include "../hyprland.hpp"
 #include "notificationhistorywindow.hpp"
 #include "notificationwindow.hpp"
+#include "texture.hpp"
 
 namespace {
 // Resolves the QScreen matching the currently focused Hyprland output, or
@@ -61,12 +65,40 @@ void NotificationManager::show(const Notification &n) {
   trimHistory();
   saveHistory();
 
+  // If we're already at the visible cap, queue it instead of creating a
+  // window: this is also what makes the timeout "only start once visible"
+  // -- the NotificationWindow (and its auto-dismiss QTimer) simply doesn't
+  // exist yet for anything sitting in m_pending.
+  if (m_cfg.maxVisible > 0 && m_windows.size() >= m_cfg.maxVisible) {
+    m_pending.append(n);
+    return;
+  }
+
+  displayNow(n);
+}
+
+void NotificationManager::displayNow(const Notification &n) {
   // Placement uses whichever monitor is focused right now; it does not
   // follow focus afterwards (a notification already on screen stays put).
   QScreen *targetScreen =
       m_cfg.useActiveMonitor ? resolveActiveMonitorScreen() : nullptr;
 
-  auto *win = new NotificationWindow(n, m_cfg, targetScreen, nullptr);
+  // "Random icon" mode: pull a picture from a folder instead of whatever
+  // (if anything) the sending app provided. Only the first decoded frame is
+  // used even for an animated source file -- the icon label is a static
+  // QLabel, not an animation target.
+  Notification displayed = n;
+  if (!m_cfg.iconSourceDir.isEmpty()) {
+    const QString path = pickRandomTexture(m_cfg.iconSourceDir);
+    if (!path.isEmpty()) {
+      const QList<TextureFrame> frames = loadTextureFrames(path);
+      if (!frames.isEmpty()) {
+        displayed.icon = QIcon(QPixmap::fromImage(frames.first().image));
+      }
+    }
+  }
+
+  auto *win = new NotificationWindow(displayed, m_cfg, targetScreen, nullptr);
   m_windows.append(win);
   reflow();
 
@@ -94,6 +126,17 @@ void NotificationManager::show(const Notification &n) {
   });
 }
 
+void NotificationManager::promoteFromQueue() {
+  if (m_pending.isEmpty()) {
+    return;
+  }
+  if (m_cfg.maxVisible > 0 && m_windows.size() >= m_cfg.maxVisible) {
+    return;
+  }
+  const Notification next = m_pending.takeFirst();
+  displayNow(next);
+}
+
 void NotificationManager::remove(uint id) {
   // Guard against re-entrant removal (e.g. a button's clicked handler chain
   // firing remove again for the same id before the first one unwinds).
@@ -115,6 +158,10 @@ void NotificationManager::remove(uint id) {
   }
   reflow();
   m_removing = false;
+  // A slot just freed up -- let the next queued notification (if any) in,
+  // now that it's actually about to become visible (see displayNow's
+  // comment on why its timer only starts here, not when it was received).
+  promoteFromQueue();
 }
 
 void NotificationManager::showHistoryWindow() {
@@ -128,15 +175,26 @@ void NotificationManager::showHistoryWindow() {
 }
 
 void NotificationManager::reflow() {
-  // Stack the windows under the top margin: each one sits below the previous,
-  // separated by the card spacing. Only live (non-null) windows are counted.
-  int top = m_cfg.top;
+  // Each monitor stacks independently: a card expanding or arriving on one
+  // screen must never push notifications around on a different screen. (The
+  // previous version tracked a single shared `top` counter for every window
+  // regardless of which monitor it was on, which both mixed up multi-monitor
+  // stacking and made expand-driven resizes cascade onto the wrong cards.)
+  QHash<QScreen *, int> topByScreen;
   for (QPointer<NotificationWindow> &p : m_windows) {
     if (p == nullptr) {
       continue;
     }
+    QScreen *screen = p->targetScreen();
+    if (!topByScreen.contains(screen)) {
+      topByScreen[screen] = m_cfg.top;
+    }
+    const int top = topByScreen[screen];
     p->setTopOffset(top);
-    top += p->sizeHint().height() + m_cfg.cardSpacing;
+    // sizeHint() reflects the card's *current* layout, so an expanded
+    // ("Details") card correctly pushes the next one on the same monitor
+    // further down.
+    topByScreen[screen] = top + p->sizeHint().height() + m_cfg.cardSpacing;
   }
 }
 
@@ -159,7 +217,7 @@ void NotificationManager::loadHistory() {
   }
 
   m_history.clear();
-  for (const QJsonValue &val : doc.array()) {
+  for (const auto &val : doc.array()) {
     if (!val.isObject()) {
       continue;
     }

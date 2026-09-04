@@ -26,7 +26,9 @@ struct Config {
   int timeoutNormalMs = 5000; // default timeout for normal notifications
   int timeoutCriticalMs = 15000; // default timeout for critical notifications
   int timerDefaultMs = 10000;    // bar drain for persistent notifications
-  int historyMaxEntries = 100;   // max history entries retained
+  int historyMaxEntries = 100;   // max history entries persisted to disk
+  int historyRecentCount = 6;    // how many show in the compact "recent
+                                 // activity" list (symm history)
   bool persistOnMinusOne = true; // expireTimeout == -1 (e.g. `notify-send -t
                                  // -1`) stays until clicked
 
@@ -41,9 +43,33 @@ struct Config {
 
   bool useActiveMonitor = true; // (Hyprland only) place new notifications on
                                 // the currently focused monitor at send time
-  bool barMoveRight = false;    // grow the bar toward the right edge
-  bool barReverse = false;      // reverse the fill direction over time
-  bool barFill = true;          // start full and drain toward zero
+
+  // Textures: static or animated images used in place of flat colors.
+  // Animation only plays for formats Qt can decode natively (GIF/animated
+  // WEBP/APNG, and AVIF if your Qt has the AVIF plugin); JXL/EXR/TIFF are
+  // decoded via ffmpeg as a single static frame -- see texture.hpp.
+  QString backgroundImage; // card background texture (empty = flat color)
+  QString barImage;        // timer-bar fill texture (empty = flat color)
+  QString iconSourceDir;   // folder to pick a random icon image from
+
+  int maxVisible = 5; // max notifications on screen at once; 0 = unlimited.
+                      // Extras queue and appear (with their timeout starting
+                      // fresh) as earlier ones close.
+
+  QString actionButtonStyle =
+      QStringLiteral("grouped"); // grouped | boxed | minimal
+  QString actionButtonPosition = QStringLiteral("inside"); // inside | outside
+  QString barStyle = QStringLiteral("inside");             // inside | edge
+  QString barPosition = QStringLiteral("below");           // above | below
+
+  bool backgroundImageAnchored = false; // when true, backgroundImage is
+                                        // treated as one image the size of
+                                        // the screen, and each card shows
+                                        // the slice of it "behind" its own
+                                        // position -- cards look like
+                                        // windows into one shared picture
+                                        // rather than each independently
+                                        // stretching/cropping it.
 
   QColor background{0x1e, 0x1e, 0x2e, 238};
   double backgroundOpacity = 1.0; // kitty-style: 1.0 opaque, 0.0 transparent

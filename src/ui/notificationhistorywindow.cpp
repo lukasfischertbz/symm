@@ -3,6 +3,7 @@
 #include <LayerShellQt/Window>
 
 #include <QBoxLayout>
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMargins>
@@ -11,11 +12,34 @@
 #include <QPushButton>
 
 namespace {
-QString timeString(const QDateTime &ts) {
+QString relativeTimeString(const QDateTime &ts) {
   if (!ts.isValid()) {
     return {};
   }
-  return ts.toString(QStringLiteral("yyyy-MM-dd HH:mm"));
+  const qint64 secs = ts.secsTo(QDateTime::currentDateTime());
+  if (secs < 5) {
+    return QObject::tr("just now");
+  }
+  if (secs < 60) {
+    return QObject::tr("%1s ago").arg(secs);
+  }
+  if (secs < 3600) {
+    return QObject::tr("%1m ago").arg(secs / 60);
+  }
+  if (secs < 86400) {
+    return QObject::tr("%1h ago").arg(secs / 3600);
+  }
+  if (secs < static_cast<qint64>(86400) * 7) {
+    return QObject::tr("%1d ago").arg(secs / 86400);
+  }
+  return ts.toString(QStringLiteral("MMM d"));
+}
+
+// Single-line elision (QLabel has no built-in multi-line elide, and a
+// compact list needs each entry to stay one line regardless of how long the
+// summary/body was).
+QString elide(const QString &text, const QFontMetrics &fm, int maxWidth) {
+  return fm.elidedText(text.simplified(), Qt::ElideRight, maxWidth);
 }
 } // namespace
 
@@ -71,9 +95,14 @@ NotificationHistoryWindow::NotificationHistoryWindow(const Config &cfg,
 
 void NotificationHistoryWindow::setEntries(const QList<HistoryEntry> &entries) {
   clearEntries();
-  for (const HistoryEntry &e : entries) {
-    m_listLayout->insertWidget(m_listLayout->count() - 1, buildEntry(e));
+  const int count =
+      static_cast<int>(qMin(entries.size(), qMax(1, m_cfg.historyRecentCount)));
+  for (int i = 0; i < count; ++i) {
+    m_listLayout->insertWidget(m_listLayout->count() - 1,
+                               buildEntry(entries.at(i)));
   }
+  const int rowH = 40; // approximate compact row height incl. spacing
+  setFixedHeight(qMin(500, 60 + count * rowH));
 }
 
 void NotificationHistoryWindow::clearEntries() {
@@ -97,8 +126,6 @@ QWidget *NotificationHistoryWindow::buildEntry(const HistoryEntry &entry) {
 HistoryCard::HistoryCard(const HistoryEntry &entry, const Config &cfg,
                          QWidget *parent)
     : QWidget(parent), m_entry(entry), m_cfg(cfg) {
-  // Fully transparent: the parent paints this card's background and border in
-  // its own paintEvent. Only the text content is rendered here.
   setAttribute(Qt::WA_TranslucentBackground);
   QPalette pal = palette();
   pal.setColor(QPalette::Window, Qt::transparent);
@@ -108,15 +135,15 @@ HistoryCard::HistoryCard(const HistoryEntry &entry, const Config &cfg,
   const QString dim = m_cfg.dimTextColor.name();
 
   auto *layout = new QVBoxLayout(this);
-  layout->setContentsMargins(12, 8, 12, 8);
-  layout->setSpacing(2);
+  layout->setContentsMargins(12, 6, 12, 6);
+  layout->setSpacing(1);
 
   auto *titleRow = new QHBoxLayout;
   titleRow->setSpacing(8);
 
   auto *appLabel =
       new QLabel(entry.appName.isEmpty() ? tr("Unknown") : entry.appName, this);
-  QFont af(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize));
+  QFont af(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize) - 1);
   af.setBold(true);
   appLabel->setFont(af);
   appLabel->setStyleSheet(
@@ -124,8 +151,8 @@ HistoryCard::HistoryCard(const HistoryEntry &entry, const Config &cfg,
   titleRow->addWidget(appLabel);
   titleRow->addStretch(1);
 
-  auto *timeLabel = new QLabel(timeString(entry.timestamp), this);
-  QFont tf(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize));
+  auto *timeLabel = new QLabel(relativeTimeString(entry.timestamp), this);
+  QFont tf(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize) - 1);
   timeLabel->setFont(tf);
   timeLabel->setStyleSheet(
       QStringLiteral("color: %1; background: transparent;").arg(dim));
@@ -133,21 +160,20 @@ HistoryCard::HistoryCard(const HistoryEntry &entry, const Config &cfg,
 
   layout->addLayout(titleRow);
 
-  if (!entry.summary.isEmpty()) {
-    auto *s = new QLabel(entry.summary, this);
+  const QString combined =
+      entry.body.isEmpty()
+          ? entry.summary
+          : (entry.summary + QStringLiteral(" — ") + entry.body);
+  if (!combined.isEmpty()) {
+    auto *s = new QLabel(this);
     s->setTextFormat(Qt::PlainText);
-    s->setWordWrap(true);
+    QFont sf(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize) - 1);
+    s->setFont(sf);
     s->setStyleSheet(
-        QStringLiteral("color: %1; background: transparent;").arg(fg));
-    layout->addWidget(s);
-  }
-  if (!entry.body.isEmpty()) {
-    auto *b = new QLabel(entry.body, this);
-    b->setTextFormat(Qt::PlainText);
-    b->setWordWrap(true);
-    b->setStyleSheet(
         QStringLiteral("color: %1; background: transparent;").arg(dim));
-    layout->addWidget(b);
+    const int textWidth = m_cfg.width - 2 * 12 - 2 * m_cfg.margin;
+    s->setText(elide(combined, QFontMetrics(sf), qMax(80, textWidth)));
+    layout->addWidget(s);
   }
 }
 

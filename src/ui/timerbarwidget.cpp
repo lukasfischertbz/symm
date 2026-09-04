@@ -1,6 +1,7 @@
 #include "timerbarwidget.hpp"
 
 #include <QPainter>
+#include <QPainterPath>
 #include <algorithm>
 
 TimerBarWidget::TimerBarWidget(QWidget *parent) : QWidget(parent) {
@@ -9,9 +10,14 @@ TimerBarWidget::TimerBarWidget(QWidget *parent) : QWidget(parent) {
   connect(&m_timer, &QTimer::timeout, this, &TimerBarWidget::onTick);
 }
 
+qint64 TimerBarWidget::effectiveElapsed() const {
+  return std::max<qint64>(0, m_elapsed.elapsed() - m_totalPauseMs);
+}
+
 void TimerBarWidget::start(int timeoutMs) {
+  m_paused = false;
+  m_totalPauseMs = 0;
   if (timeoutMs <= 0) {
-    // Permanent notification: keep the bar full.
     m_durationMs = 0;
     m_timer.stop();
     update();
@@ -23,7 +29,30 @@ void TimerBarWidget::start(int timeoutMs) {
   update();
 }
 
-void TimerBarWidget::stop() { m_timer.stop(); }
+void TimerBarWidget::stop() {
+  m_timer.stop();
+  m_totalPauseMs = 0;
+}
+
+void TimerBarWidget::pause() {
+  if (m_durationMs <= 0 || m_paused) {
+    return;
+  }
+  m_paused = true;
+  m_pauseStart = m_elapsed.elapsed();
+  m_timer.stop();
+  update();
+}
+
+void TimerBarWidget::resume() {
+  if (!m_paused) {
+    return;
+  }
+  m_paused = false;
+  m_totalPauseMs += m_elapsed.elapsed() - m_pauseStart;
+  m_timer.start(16);
+  update();
+}
 
 void TimerBarWidget::onTick() {
   if (m_durationMs <= 0) {
@@ -37,38 +66,59 @@ void TimerBarWidget::paintEvent(QPaintEvent * /*event*/) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
 
-  const QRectF track = rect().adjusted(2, 1, -2, -1);
+  const QRectF track =
+      m_edgeStyle ? QRectF(rect()) : rect().adjusted(2, 1, -2, -1);
+  const double radius = m_edgeStyle ? 0.0 : 3.0;
   p.setPen(Qt::NoPen);
   p.setBrush(m_trackColor);
-  p.drawRoundedRect(track, 3.0, 3.0);
+  p.drawRoundedRect(track, radius, radius);
 
-  double fillRatio = 1.0;
+  double remaining = 1.0;
   if (m_durationMs > 0) {
-    const double elapsed = static_cast<double>(m_elapsed.elapsed());
-    const double elapsedRatio =
-        std::clamp(elapsed / static_cast<double>(m_durationMs), 0.0, 1.0);
-    const double remainingRatio = 1.0 - elapsedRatio;
-    fillRatio = m_fill ? elapsedRatio : remainingRatio;
-    if (m_reverse) {
-      fillRatio = 1.0 - fillRatio;
-    }
-    fillRatio = std::clamp(fillRatio, 0.0, 1.0);
+    remaining = 1.0 - (static_cast<double>(effectiveElapsed()) /
+                       static_cast<double>(m_durationMs));
+    remaining = std::max(remaining, 0.0);
   }
 
-  if (fillRatio <= 0.0) {
+  if (remaining <= 0.0) {
     return;
   }
 
   QRectF fill = track;
-  const double fillWidth = track.width() * fillRatio;
-  if (m_moveRight) {
-    fill.setLeft(track.left());
-    fill.setRight(track.left() + fillWidth);
-  } else {
-    fill.setLeft(track.right() - fillWidth);
-    fill.setRight(track.right());
-  }
+  fill.setRight(track.left() + (track.width() * remaining));
 
-  p.setBrush(m_barColor);
-  p.drawRoundedRect(fill, 3.0, 3.0);
+  if (!m_frames.isEmpty()) {
+    const int idx = currentFrameIndex();
+    const QImage &img = m_frames[idx].image;
+    QPainterPath fillPath;
+    fillPath.addRoundedRect(fill, radius, radius);
+    p.setClipPath(fillPath);
+    p.drawImage(track, img, QRectF(0, 0, img.width(), img.height()));
+    p.setClipping(false);
+  } else {
+    p.setBrush(m_barColor);
+    p.drawRoundedRect(fill, radius, radius);
+  }
+}
+
+int TimerBarWidget::currentFrameIndex() const {
+  if (m_frames.size() <= 1) {
+    return 0;
+  }
+  int total = 0;
+  for (const TextureFrame &f : m_frames) {
+    total += qMax(1, f.delayMs);
+  }
+  if (total <= 0) {
+    return 0;
+  }
+  int t = static_cast<int>(effectiveElapsed()) % total;
+  int acc = 0;
+  for (int i = 0; i < m_frames.size(); ++i) {
+    acc += qMax(1, m_frames[i].delayMs);
+    if (t < acc) {
+      return i;
+    }
+  }
+  return static_cast<int>(m_frames.size()) - 1;
 }

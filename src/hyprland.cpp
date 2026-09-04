@@ -25,7 +25,7 @@ MonitorInfo activeHyprlandMonitor() {
     return info;
   }
 
-  for (const QJsonValue &val : doc.array()) {
+  for (const auto &val : doc.array()) {
     const QJsonObject o = val.toObject();
     if (!o.value(QStringLiteral("focused")).toBool()) {
       continue;

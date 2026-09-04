@@ -1,6 +1,6 @@
 # symm
 
-A wlr-layer-shell notification daemon (DBus org.freedesktop.Notifications).
+A qt wlr-layer-shell notification daemon (DBus org.freedesktop.Notifications).
 
 > [!NOTE]
 > Made on hyprland
@@ -119,4 +119,4 @@ to normal; `urgent_critical` to critical. Colors accept any QColor string.
 - [ ] Icons
 - [ ] App-side blur (kitty-style frosted background, any compositor)
 - [ ] Use active monitor (Hyprland; on send only)
-- [ ] Texture
+- [ ] Images

@@ -2,8 +2,11 @@
 
 #include <QColor>
 #include <QElapsedTimer>
+#include <QList>
 #include <QTimer>
 #include <QWidget>
+
+#include "texture.hpp"
 
 // Draws a horizontal "draining" progress bar representing the remaining
 // notification timeout. Animates to zero over the notification's lifetime.
@@ -14,6 +17,10 @@ public:
 
   void start(int timeoutMs);
   void stop();
+  // Freezes the countdown at its current remaining time (hover). resume()
+  // continues from exactly where it left off, not a fresh full duration.
+  void pause();
+  void resume();
 
   QColor barColor() const { return m_barColor; }
   void setBarColor(const QColor &c) {
@@ -21,22 +28,19 @@ public:
     update();
   }
 
-  bool moveRight() const { return m_moveRight; }
-  void setMoveRight(bool value) {
-    m_moveRight = value;
+  // Optional texture for the bar's filled portion, drawn instead of
+  // barColor. Animated sources cycle frames using the bar's own repaint
+  // timer while a countdown is active.
+  void setBarImage(const QString &path) {
+    m_frames = loadTextureFrames(path);
     update();
   }
 
-  bool reverse() const { return m_reverse; }
-  void setReverse(bool value) {
-    m_reverse = value;
-    update();
-  }
-
-  // true: drain from full to empty; false: grow from empty to full.
-  bool fill() const { return m_fill; }
-  void setFill(bool value) {
-    m_fill = value;
+  // Flush/edge look (bar_style=edge): no inset, square corners, spans the
+  // full widget width. Default is inset+rounded, sitting inside the card's
+  // padding like a normal progress bar.
+  void setEdgeStyle(bool edge) {
+    m_edgeStyle = edge;
     update();
   }
 
@@ -49,12 +53,17 @@ private slots:
   void onTick();
 
 private:
+  int currentFrameIndex() const;
+  qint64 effectiveElapsed() const;
+
   QTimer m_timer;
   QElapsedTimer m_elapsed;
   qint64 m_durationMs = 0;
-  bool m_moveRight = false;
-  bool m_reverse = false;
-  bool m_fill = true;
   QColor m_barColor{0x89, 0xb4, 0xfa};
   QColor m_trackColor{0x31, 0x32, 0x44};
+  QList<TextureFrame> m_frames;
+  bool m_paused = false;
+  qint64 m_pauseStart = 0;
+  qint64 m_totalPauseMs = 0;
+  bool m_edgeStyle = false;
 };

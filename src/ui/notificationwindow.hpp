@@ -7,12 +7,14 @@
 
 #include "../config.hpp"
 #include "../notification.hpp"
+#include "texture.hpp"
 #include "timerbarwidget.hpp"
 
 class QLabel;
 class QPushButton;
 class QTimer;
 class QScreen;
+class QVBoxLayout;
 
 // Single floating notification card: an independent layer-shell surface so the
 // compositor can blur it as one rectangle (kitty-style frost). Each card is its
@@ -31,6 +33,12 @@ public:
   void setTopOffset(int topMargin);
 
   uint id() const { return m_id; }
+  // The output this card was pinned to at send time (see
+  // NotificationManager::show / "use active monitor"). Null means "whatever
+  // the default/primary screen is" -- reflow() groups by this so two
+  // monitors each get their own independent stack instead of sharing one
+  // running height counter.
+  QScreen *targetScreen() const { return m_targetScreen; }
 
 signals:
   void dismissed(uint id);
@@ -42,10 +50,13 @@ protected:
   void showEvent(QShowEvent *event) override;
   void resizeEvent(QResizeEvent *event) override;
   void mousePressEvent(QMouseEvent *event) override;
+  void enterEvent(QEnterEvent *event) override;
+  void leaveEvent(QEvent *event) override;
 
 private slots:
   void onTimeoutFinished();
   void onActionClicked(const QString &key);
+  void onBgFrameTick();
 
 private:
   void layoutContents(const Notification &n);
@@ -53,10 +64,15 @@ private:
   void setupLayerShell();
   void toggleExpand();
   void updateBlurPanel();
+  // Shared tail of toggleExpand()/hover-expand: re-measures the (now
+  // taller-or-shorter) content, resizes the window, and tells the manager
+  // to reflow so cards below shift accordingly.
+  void relayoutForBodyChange();
 
   uint m_id;
   int m_remainingMs;
   Config m_cfg;
+  QScreen *m_targetScreen = nullptr;
   UrgencyStyle m_style;
   QPointer<QTimer> m_lifeTimer;
   TimerBarWidget *m_timerBar = nullptr;
@@ -64,13 +80,39 @@ private:
   QLabel *m_summaryLabel = nullptr;
   QLabel *m_bodyLabel = nullptr;
   QList<QPushButton *> m_actionButtons;
+  // The padded inner column (icon/summary/body/inside-actions/inside-bar).
+  // A separate 0-margin outer layout wraps this plus anything configured to
+  // sit at the literal card edge (bar_style=edge) or outside the card panel
+  // entirely (action_button_position=outside).
+  QVBoxLayout *m_contentLayout = nullptr;
+  QWidget *m_actionsRowWidget = nullptr;
+  bool m_actionsOutside = false;
 
   // "Details" (click to expand truncated body).
   QString m_fullBody;
+  QString m_truncatedBody;
   bool m_truncated = false;
-  bool m_expanded = false;
+  bool m_expanded = false;             // permanent, from a click
+  bool m_hoverTemporaryExpand = false; // transient, collapses again on leave
+
+  // True while relayoutForBodyChange() is running. On Wayland a window resize
+  // can synthesize enter/leave events, which would collapse a hover-expanded
+  // body immediately (relayout -> leave -> shrink -> enter -> expand...). The
+  // event handlers ignore enter/leave while this is set.
+  bool m_inRelayout = false;
+
+  // Hover pauses the auto-dismiss countdown; this is the remaining time
+  // (ms) captured at the moment the pointer entered, restored on leave.
+  int m_pausedRemainingMs = 0;
 
   // Cached frosted-glass backdrop; regenerated on show/resize, not every
   // paint (a real screen grab + gaussian blur is too slow to do per-frame).
   QPixmap m_blurPanel;
+
+  // Background texture (config.backgroundImage). Animates via m_bgAnimTimer
+  // when the source has more than one frame (GIF/animated WEBP/APNG, or
+  // AVIF with plugin support -- see texture.hpp for what animates vs. not).
+  QList<TextureFrame> m_bgFrames;
+  int m_bgFrameIndex = 0;
+  QPointer<QTimer> m_bgAnimTimer;
 };

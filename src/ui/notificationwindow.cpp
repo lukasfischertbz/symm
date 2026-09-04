@@ -4,6 +4,7 @@
 
 #include <QApplication>
 #include <QBoxLayout>
+#include <QEnterEvent>
 #include <QFlags>
 #include <QLabel>
 #include <QMargins>
@@ -15,12 +16,14 @@
 #include <QTimer>
 
 #include "blur.hpp"
+#include "texture.hpp"
 
 NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
                                        QScreen *targetScreen, QWidget *parent)
     : QWidget(parent,
               Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint),
-      m_id(n.id), m_remainingMs(n.timeoutMs), m_cfg(cfg) {
+      m_id(n.id), m_remainingMs(n.timeoutMs), m_cfg(cfg),
+      m_targetScreen(targetScreen) {
   // Pick the accent style for this notification's urgency.
   const QString key = m_cfg.urgencyColorKey(n.urgency);
   if (key == QStringLiteral("low")) {
@@ -33,12 +36,25 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
 
   setAttribute(Qt::WA_TranslucentBackground);
   setWindowTitle(QStringLiteral("notifier"));
+  setAttribute(Qt::WA_Hover);
+  setMouseTracking(true);
 
   setFixedWidth(m_cfg.width);
 
+  if (!m_cfg.backgroundImage.isEmpty()) {
+    m_bgFrames = loadTextureFrames(m_cfg.backgroundImage);
+    if (m_bgFrames.size() > 1) {
+      m_bgAnimTimer = new QTimer(this);
+      m_bgAnimTimer->setSingleShot(true);
+      connect(m_bgAnimTimer, &QTimer::timeout, this,
+              &NotificationWindow::onBgFrameTick);
+      m_bgAnimTimer->start(qMax(20, m_bgFrames.first().delayMs));
+    }
+  }
+
   layoutContents(n);
 
-  auto *layout = static_cast<QVBoxLayout *>(this->layout());
+  auto *outer = static_cast<QVBoxLayout *>(this->layout());
 
   // A bar only makes sense when the notification auto-dismisses on a timer.
   // Notifications that stay until clicked (persistent, or no positive
@@ -48,14 +64,34 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
 
   m_timerBar = new TimerBarWidget(this);
   m_timerBar->setBarColor(m_style.bar);
-  m_timerBar->setMoveRight(m_cfg.barMoveRight);
-  m_timerBar->setReverse(m_cfg.barReverse);
-  m_timerBar->setFill(m_cfg.barFill);
+  if (!m_cfg.barImage.isEmpty()) {
+    m_timerBar->setBarImage(m_cfg.barImage);
+  }
+  const bool edgeBar = m_cfg.barStyle == QStringLiteral("edge");
+  const bool barAbove = m_cfg.barPosition == QStringLiteral("above");
+  m_timerBar->setEdgeStyle(edgeBar);
   m_timerBar->setVisible(timed);
-  layout->addWidget(m_timerBar);
 
-  layout->activate();
-  int contentH = layout->sizeHint().height();
+  if (edgeBar) {
+    // Flush with the card's literal border, no padding -- goes in the
+    // 0-margin outer layout, not the padded content column.
+    if (barAbove) {
+      outer->insertWidget(0, m_timerBar);
+    } else {
+      outer->addWidget(m_timerBar);
+    }
+  } else {
+    // "inside" (default): padded like everything else, positioned above or
+    // below the message text within the content column.
+    if (barAbove) {
+      m_contentLayout->insertWidget(0, m_timerBar);
+    } else {
+      m_contentLayout->addWidget(m_timerBar);
+    }
+  }
+
+  outer->activate();
+  int contentH = outer->sizeHint().height();
   setFixedSize(m_cfg.width, qMax(contentH, 70));
 
   if (timed) {
@@ -105,15 +141,16 @@ void NotificationWindow::showEvent(QShowEvent *event) {
 }
 
 void NotificationWindow::updateBlurPanel() {
-  if (!m_cfg.blurEnabled || size().isEmpty()) {
+  if (!m_cfg.blurEnabled || size().isEmpty() || !m_bgFrames.isEmpty()) {
+    // A texture background (if set) always wins over blur -- see
+    // paintEvent -- so skip the (relatively expensive) capture entirely.
     m_blurPanel = QPixmap();
     return;
   }
   // A real screen grab + gaussian blur is too slow to redo every paint, so
   // it's cached here and only regenerated on show/resize/expand.
   const QRect globalRect(mapToGlobal(QPoint(0, 0)), size());
-  m_blurPanel =
-      makeFrostedPanel(globalRect, m_cfg.blurRadius, m_cfg.background);
+  m_blurPanel = makeFrostedPanel(globalRect, m_cfg.blurRadius);
   update();
 }
 
@@ -133,17 +170,65 @@ void NotificationWindow::resizeEvent(QResizeEvent *event) {
 }
 
 void NotificationWindow::mousePressEvent(QMouseEvent *event) {
-  // If the body is truncated, the first click expands it ("Details") instead
-  // of dismissing, so you can actually read it. Once expanded (or if there
-  // was nothing to expand), a click dismisses as before.
-  if (m_truncated && !m_expanded) {
-    toggleExpand();
-    QWidget::mousePressEvent(event);
-    return;
-  }
   emit dismissed(m_id);
   close();
   QWidget::mousePressEvent(event);
+}
+
+void NotificationWindow::enterEvent(QEnterEvent *event) {
+  // Resize-triggered enter/leave bursts (Wayland) must not be treated as the
+  // pointer actually arriving; see m_inRelayout.
+  if (m_inRelayout) {
+    QWidget::enterEvent(event);
+    return;
+  }
+
+  // Hovering halts the auto-dismiss countdown -- both the QTimer driving it
+  // and the bar animating it -- and resumes from exactly where it left off
+  // when the pointer leaves (see leaveEvent), rather than losing the
+  // notification mid-read.
+  if (m_lifeTimer && m_lifeTimer->isActive()) {
+    m_pausedRemainingMs = m_lifeTimer->remainingTime();
+    m_lifeTimer->stop();
+    if (m_timerBar) {
+      m_timerBar->pause();
+    }
+  }
+
+  // Hovering a truncated body also previews the full text, same as a click
+  // but temporary: it collapses back on leaveEvent unless a click made it
+  // permanent in the meantime (see m_expanded vs. m_hoverTemporaryExpand).
+  if (m_truncated && !m_expanded && !m_hoverTemporaryExpand &&
+      m_bodyLabel != nullptr) {
+    m_hoverTemporaryExpand = true;
+    m_bodyLabel->setText(m_fullBody);
+    relayoutForBodyChange();
+  }
+
+  QWidget::enterEvent(event);
+}
+
+void NotificationWindow::leaveEvent(QEvent *event) {
+  if (m_inRelayout) {
+    QWidget::leaveEvent(event);
+    return;
+  }
+
+  if (m_pausedRemainingMs > 0 && m_lifeTimer) {
+    m_lifeTimer->start(m_pausedRemainingMs);
+    if (m_timerBar) {
+      m_timerBar->resume();
+    }
+    m_pausedRemainingMs = 0;
+  }
+
+  if (m_hoverTemporaryExpand && !m_expanded && m_bodyLabel != nullptr) {
+    m_hoverTemporaryExpand = false;
+    m_bodyLabel->setText(m_truncatedBody);
+    relayoutForBodyChange();
+  }
+
+  QWidget::leaveEvent(event);
 }
 
 void NotificationWindow::toggleExpand() {
@@ -158,25 +243,43 @@ void NotificationWindow::toggleExpand() {
   if (m_lifeTimer) {
     m_lifeTimer->stop();
   }
+  m_pausedRemainingMs = 0;
   if (m_timerBar) {
     m_timerBar->stop();
     m_timerBar->setVisible(false);
   }
 
-  auto *layout = static_cast<QVBoxLayout *>(this->layout());
-  layout->activate();
-  const int contentH = layout->sizeHint().height();
+  relayoutForBodyChange();
+}
+
+void NotificationWindow::relayoutForBodyChange() {
+  m_inRelayout = true;
+  auto *outer = static_cast<QVBoxLayout *>(this->layout());
+  if (outer == nullptr) {
+    m_inRelayout = false;
+    return;
+  }
+  outer->activate();
+  const int contentH = outer->sizeHint().height();
   setFixedSize(m_cfg.width, qMax(contentH, 70));
 
   updateBlurPanel();
   emit resized();
+  m_inRelayout = false;
 }
 
 void NotificationWindow::layoutContents(const Notification &n) {
-  auto *layout = new QVBoxLayout(this);
-  layout->setContentsMargins(m_cfg.paddingH, m_cfg.paddingV, m_cfg.paddingH,
-                             m_cfg.paddingV);
-  layout->setSpacing(m_cfg.gap);
+  // Outer, 0-margin layout: holds the padded content column plus anything
+  // configured to sit flush at the literal card edge (bar_style=edge) or
+  // detached below the card panel (action_button_position=outside).
+  auto *outer = new QVBoxLayout(this);
+  outer->setContentsMargins(0, 0, 0, 0);
+  outer->setSpacing(0);
+
+  m_contentLayout = new QVBoxLayout;
+  m_contentLayout->setContentsMargins(m_cfg.paddingH, m_cfg.paddingV,
+                                      m_cfg.paddingH, m_cfg.paddingV);
+  m_contentLayout->setSpacing(m_cfg.gap);
 
   const QString dim = m_cfg.dimTextColor.name();
   const QString fg = m_cfg.textColor.name();
@@ -214,13 +317,14 @@ void NotificationWindow::layoutContents(const Notification &n) {
   if (!n.body.isEmpty()) {
     m_fullBody = n.body;
     m_truncated = n.body.size() > qMax(0, m_cfg.bodyTruncateChars);
+    m_truncatedBody = m_truncated
+                          ? n.body.left(m_cfg.bodyTruncateChars).trimmed() +
+                                QStringLiteral("…")
+                          : n.body;
 
     m_bodyLabel = new QLabel(this);
     m_bodyLabel->setTextFormat(Qt::PlainText);
-    m_bodyLabel->setText(m_truncated
-                             ? n.body.left(m_cfg.bodyTruncateChars).trimmed() +
-                                   QStringLiteral("…")
-                             : n.body);
+    m_bodyLabel->setText(m_truncatedBody);
     QFont f(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize));
     m_bodyLabel->setFont(f);
     m_bodyLabel->setStyleSheet(
@@ -230,7 +334,9 @@ void NotificationWindow::layoutContents(const Notification &n) {
   }
 
   row->addLayout(textCol, 1);
-  layout->addLayout(row);
+  m_contentLayout->addLayout(row);
+
+  outer->addLayout(m_contentLayout);
 
   layoutActions(n.actions);
 }
@@ -239,46 +345,169 @@ void NotificationWindow::layoutActions(const QStringList &actions) {
   if (actions.size() < 2) {
     return;
   }
-  auto *layout = static_cast<QVBoxLayout *>(this->layout());
-  if (layout == nullptr) {
+  auto *outer = static_cast<QVBoxLayout *>(this->layout());
+  if (outer == nullptr || m_contentLayout == nullptr) {
     return;
   }
-  auto *row = new QHBoxLayout;
-  row->setSpacing(6);
+
+  m_actionsOutside = m_cfg.actionButtonPosition == QStringLiteral("outside");
+  // "outside" buttons have no shared card panel behind them (paintEvent
+  // shrinks the card path to exclude this row -- see there), so they always
+  // render as individual pills regardless of action_button_style; grouped/
+  // minimal only apply to buttons drawn inside the card.
+  const QString style =
+      m_actionsOutside ? QStringLiteral("boxed") : m_cfg.actionButtonStyle;
   const QString accent = m_style.accent.name();
+
+  auto *rowWidget = new QWidget(this);
+  rowWidget->setAttribute(Qt::WA_TranslucentBackground);
+  auto *row = new QHBoxLayout(rowWidget);
+  row->setContentsMargins(0, 0, 0, 0);
+  row->setSpacing(style == QStringLiteral("grouped") ? 0 : 6);
+
+  QStringList keys;
+  QStringList labels;
   for (int i = 0; i + 1 < actions.size(); i += 2) {
-    const QString key = actions.at(i);
-    const QString label = actions.at(i + 1);
-    auto *btn = new QPushButton(label.isEmpty() ? key : label, this);
+    keys.append(actions.at(i));
+    labels.append(actions.at(i + 1));
+  }
+  const int count = static_cast<int>(keys.size());
+
+  for (int i = 0; i < count; ++i) {
+    const QString &key = keys.at(i);
+    const QString label = labels.at(i).isEmpty() ? key : labels.at(i);
+    auto *btn = new QPushButton(label, rowWidget);
     btn->setCursor(Qt::PointingHandCursor);
-    btn->setStyleSheet(
-        QStringLiteral(
-            "QPushButton { color: %1; background: transparent; border: 1px "
-            "solid %2;"
-            " border-radius: 4px; padding: 3px 8px; }"
-            "QPushButton:hover { background: rgba(255,255,255,0.08); }"
-            "QPushButton:pressed { background: rgba(255,255,255,0.15); }")
-            .arg(accent, accent));
+
+    QString css;
+    if (style == QStringLiteral("minimal")) {
+      css =
+          QStringLiteral("QPushButton { color: %1; background: transparent; "
+                         "border: none; padding: 4px 10px; font-weight: 600; }"
+                         "QPushButton:hover { color: white; }"
+                         "QPushButton:pressed { color: %1; }")
+              .arg(accent);
+    } else if (style == QStringLiteral("grouped")) {
+      QString corners;
+      if (count == 1) {
+        corners = QStringLiteral("border-radius: 6px;");
+      } else if (i == 0) {
+        corners = QStringLiteral("border-top-left-radius: 6px; "
+                                 "border-bottom-left-radius: 6px; "
+                                 "border-top-right-radius: 0; "
+                                 "border-bottom-right-radius: 0;");
+      } else if (i == count - 1) {
+        corners = QStringLiteral("border-top-right-radius: 6px; "
+                                 "border-bottom-right-radius: 6px; "
+                                 "border-top-left-radius: 0; "
+                                 "border-bottom-left-radius: 0;");
+      } else {
+        corners = QStringLiteral("border-radius: 0;");
+      }
+      const QString leftBorder =
+          i == 0 ? QStringLiteral("border-left: 1px solid %1;").arg(accent)
+                 : QStringLiteral("border-left: none;");
+      css = QStringLiteral(
+                "QPushButton { color: %1; background: "
+                "rgba(255,255,255,18); border: 1px solid %1; %2 %3 "
+                "padding: 4px 12px; }"
+                "QPushButton:hover { background: rgba(255,255,255,38); }"
+                "QPushButton:pressed { background: rgba(255,255,255,55); }")
+                .arg(accent, leftBorder, corners);
+    } else {
+      css = QStringLiteral(
+                "QPushButton { color: %1; background: transparent; "
+                "border: 1px solid %1; border-radius: 4px; padding: 3px 8px; }"
+                "QPushButton:hover { background: rgba(255,255,255,20); }"
+                "QPushButton:pressed { background: rgba(255,255,255,38); }")
+                .arg(accent);
+    }
+    btn->setStyleSheet(css);
     connect(btn, &QPushButton::clicked, this,
             [this, key] { onActionClicked(key); });
     row->addWidget(btn);
     m_actionButtons.append(btn);
   }
-  layout->addLayout(row);
+
+  m_actionsRowWidget = rowWidget;
+  if (m_actionsOutside) {
+    outer->addSpacing(6);
+    outer->addWidget(rowWidget, 0, Qt::AlignHCenter);
+  } else {
+    m_contentLayout->addWidget(rowWidget);
+  }
 }
 
 void NotificationWindow::onActionClicked(const QString &key) {
   emit actionInvoked(m_id, key);
 }
 
+void NotificationWindow::onBgFrameTick() {
+  if (m_bgFrames.isEmpty()) {
+    return;
+  }
+  m_bgFrameIndex = (m_bgFrameIndex + 1) % static_cast<int>(m_bgFrames.size());
+  update();
+  if (m_bgAnimTimer) {
+    m_bgAnimTimer->start(qMax(20, m_bgFrames[m_bgFrameIndex].delayMs));
+  }
+}
+
 void NotificationWindow::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
 
-  QPainterPath path;
-  path.addRoundedRect(rect(), m_cfg.radius, m_cfg.radius);
+  // When action buttons render "outside", they sit below the card panel
+  // proper -- shrink the painted panel to exclude that strip instead of
+  // covering it.
+  QRect cardRect = rect();
+  if (m_actionsOutside && m_actionsRowWidget != nullptr &&
+      m_actionsRowWidget->height() > 0) {
+    const int excl = m_actionsRowWidget->height() + 6;
+    cardRect.setHeight(qMax(20, height() - excl));
+  }
 
-  if (m_cfg.blurEnabled && !m_blurPanel.isNull()) {
+  QPainterPath path;
+  path.addRoundedRect(cardRect, m_cfg.radius, m_cfg.radius);
+
+  if (!m_bgFrames.isEmpty()) {
+    const QImage &frame = m_bgFrames[m_bgFrameIndex].image;
+    QPixmap toDraw;
+    QRect src;
+
+    if (m_cfg.backgroundImageAnchored) {
+      QScreen *scr = m_targetScreen != nullptr ? m_targetScreen : screen();
+      const QSize screenSize =
+          scr != nullptr ? scr->geometry().size() : QSize(1920, 1080);
+      const QPoint screenOrigin =
+          scr != nullptr ? scr->geometry().topLeft() : QPoint(0, 0);
+      toDraw = QPixmap::fromImage(frame).scaled(
+          screenSize, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+      const QPoint winPos = mapToGlobal(QPoint(0, 0)) - screenOrigin;
+      src = QRect(winPos, cardRect.size()).intersected(toDraw.rect());
+      if (src.isEmpty()) {
+        src = QRect(0, 0, qMin(toDraw.width(), cardRect.width()),
+                    qMin(toDraw.height(), cardRect.height()));
+      }
+    } else {
+      // Crop-to-fill (like CSS background-size: cover), independent per card.
+      toDraw = QPixmap::fromImage(frame).scaled(cardRect.size(),
+                                                Qt::KeepAspectRatioByExpanding,
+                                                Qt::SmoothTransformation);
+      src = QRect((toDraw.width() - cardRect.width()) / 2,
+                  (toDraw.height() - cardRect.height()) / 2, cardRect.width(),
+                  cardRect.height());
+    }
+
+    p.setClipPath(path);
+    p.drawPixmap(cardRect, toDraw, src);
+    p.setClipping(false);
+
+    QColor tint = m_cfg.background;
+    tint.setAlphaF(
+        static_cast<float>(tint.alphaF() * m_cfg.backgroundOpacity * 0.5));
+    p.fillPath(path, tint);
+  } else if (m_cfg.blurEnabled && !m_blurPanel.isNull()) {
     p.setClipPath(path);
     p.drawPixmap(0, 0, m_blurPanel);
     p.setClipping(false);
@@ -286,11 +515,12 @@ void NotificationWindow::paintEvent(QPaintEvent *) {
     // Tint over the frosted backdrop so text stays legible (kitty-style
     // frost: blurred content behind a translucent color wash, not raw blur).
     QColor tint = m_cfg.background;
-    tint.setAlphaF(tint.alphaF() * m_cfg.backgroundOpacity * 0.55);
+    tint.setAlphaF(
+        static_cast<float>(tint.alphaF() * m_cfg.backgroundOpacity * 0.55));
     p.fillPath(path, tint);
   } else {
     QColor fill = m_cfg.background;
-    fill.setAlphaF(fill.alphaF() * m_cfg.backgroundOpacity);
+    fill.setAlphaF(static_cast<float>(fill.alphaF() * m_cfg.backgroundOpacity));
     p.fillPath(path, fill);
   }
 
