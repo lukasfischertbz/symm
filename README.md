@@ -10,6 +10,7 @@ A qt wlr-layer-shell notification daemon (DBus org.freedesktop.Notifications).
 ![](preview.png)
 
 ```sh
+# cd /tmp
 git clone git@github.com:lukasfischertbz/symm.git
 cd symm
 make install clear run
@@ -70,12 +71,6 @@ If the file is missing, defaults are used.
 > [!NOTE]
 > Configs are loaded for every notification
 
-Copy preset
-
-```sh
-mkdir -p ~/.config/symm && cp config.conf ~/.config/symm/config.conf
-```
-
 [Example](config.conf)
 
 ```ini
@@ -103,8 +98,17 @@ accent = #6c7086
 # ...
 ```
 
-Section `urgent_error` applies to unclassified notifications; `urgent_normal`
-to normal; `urgent_critical` to critical. Colors accept any QColor string.
+### Themes
+
+Test presets
+
+```sh
+make theme
+```
+
+Hirarchy is
+
+`symm.user.ini` > `symm.theme.ini` > `ymm.sys.ini` > `symm.ini`
 
 ---
 
@@ -115,7 +119,7 @@ to normal; `urgent_critical` to critical. Colors accept any QColor string.
 - [x] Transparency
 - [x] Details (click a truncated notification to expand it)
 - [x] Use active monitor (Hyprland; on send only)
-- [ ] Presets
+- [ ] Themes
 - [ ] History
 - [ ] Icons
 - [ ] App-side blur (kitty-style frosted background, any compositor)
