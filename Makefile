@@ -18,9 +18,9 @@ uninstall:
 	rm -f $(PREFIX)/bin/$(BIN)
 
 clear:
-	-pkill -f symm || true
-	-pkill -f mako || true
-	-pkill -f dunst || true
+	-pkill -x symm || true
+	-pkill -x mako || true
+	-pkill -x dunst || true
 
 run:
 	setsid $(PREFIX)/bin/$(BIN) >/tmp/symm.log 2>&1 < /dev/null &

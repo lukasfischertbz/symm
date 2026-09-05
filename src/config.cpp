@@ -28,20 +28,25 @@ struct IniData {
         continue;
       }
       if (raw.startsWith(QLatin1Char('[')) && raw.endsWith(QLatin1Char(']'))) {
-        current = raw.mid(1, raw.size() - 2).trimmed();
+        current = raw.mid(1, raw.size() - 2).trimmed().toLower();
         continue;
       }
       const int eq = static_cast<int>(raw.indexOf(QLatin1Char('=')));
       if (eq < 0) {
         continue;
       }
-      const QString key = raw.left(eq).trimmed();
+      const QString key = raw.left(eq).trimmed().toLower();
       QString val = raw.mid(eq + 1).trimmed();
       if (val.startsWith(QLatin1Char('"')) && val.endsWith(QLatin1Char('"')) &&
           val.size() >= 2) {
         val = val.mid(1, val.size() - 2);
       }
-      sections[current][key] = val;
+      // Keys before any section header (and any key casing) belong to the
+      // "general" section so user configs written as bare "key = value" lines
+      // are honored exactly like [general].
+      const QString section =
+          current.isEmpty() ? QStringLiteral("general") : current;
+      sections[section][key] = val;
     }
     return true;
   }
@@ -88,21 +93,23 @@ Config Config::load() {
       QStringLiteral("/symm");
 
   // Layered config, highest precedence first:
-  //   symm.user.ini > symm.theme.ini > symm.sys.ini > symm.ini
-  // Missing layers are skipped.
+  //   symm.user.ini > symm.theme.ini > symm.sys.ini > symm.ini > config.conf
+  // config.conf is the primary config file (see README). Missing layers are
+  // skipped. The theme picker writes symm.theme.ini, which layers above
+  // symm.sys.ini and symm.ini but below the user config.
   IniData ini;
-  const QString basePath = QDir(dir).filePath(QStringLiteral("symm.ini"));
+  const QString basePath = QDir(dir).filePath(QStringLiteral("config.conf"));
   ini.parse(basePath);
 
+  // Each file is merged as its own independent layer, later files win.
   IniData layer;
-  if (layer.parse(QDir(dir).filePath(QStringLiteral("symm.sys.ini")))) {
-    ini.merge(layer);
-  }
-  if (layer.parse(QDir(dir).filePath(QStringLiteral("symm.theme.ini")))) {
-    ini.merge(layer);
-  }
-  if (layer.parse(QDir(dir).filePath(QStringLiteral("symm.user.ini")))) {
-    ini.merge(layer);
+  const char *layers[] = {"symm.ini", "symm.sys.ini", "symm.theme.ini",
+                          "symm.user.ini"};
+  for (const char *name : layers) {
+    layer.sections.clear();
+    if (layer.parse(QDir(dir).filePath(QLatin1String(name)))) {
+      ini.merge(layer);
+    }
   }
 
   Config c;

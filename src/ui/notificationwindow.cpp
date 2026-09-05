@@ -687,11 +687,14 @@ void NotificationWindow::paintEvent(QPaintEvent *) {
     p.drawPixmap(0, 0, m_blurPanel);
     p.setClipping(false);
 
-    // Tint over the frosted backdrop so text stays legible (kitty-style
-    // frost: blurred content behind a translucent color wash, not raw blur).
+    // Kitty-style: the blurred desktop shows through almost unobscured. Only a
+    // faint darkening is applied so text stays legible -- never an opaque
+    // color wash (that is what made it read as a flat colored panel instead of
+    // real blurred content behind the card).
     QColor tint = m_cfg.background;
-    tint.setAlphaF(
-        static_cast<float>(tint.alphaF() * m_cfg.backgroundOpacity * 0.55));
+    const float base = static_cast<float>(tint.alphaF());
+    const float a = base * static_cast<float>(m_cfg.backgroundOpacity) * 0.20f;
+    tint.setAlphaF(qBound(0.0f, a, 1.0f));
     p.fillPath(path, tint);
   } else {
     QColor fill = m_cfg.background;

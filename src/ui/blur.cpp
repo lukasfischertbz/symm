@@ -189,16 +189,28 @@ QPixmap makeFrostedPanel(const QRect &globalRect, int blurRadius,
     return {};
   }
 
-  // Real desktop pixels: crop the cached snapshot when there's a valid one.
+  // Real desktop pixels: crop a region of the cached snapshot and blur it.
+  // The sample region is expanded well beyond the card's own bounds so the
+  // blur bleeds continuously across the whole card -- kitty-style -- instead
+  // of being computed on a tiny isolated patch (which reads as a hard-edged
+  // sticker). The blurred result is then cropped back to the card size.
   if (!s_snapshot.image.isNull()) {
-    // Translate the card's global rect into the snapshot's local coordinate
-    // space, then clamp to its bounds.
-    const QRect clip = globalRect.translated(-s_snapshot.origin)
+    const int bleed = qMax(64, blurRadius * 4);
+    const QRect wide = globalRect.adjusted(-bleed, -bleed, bleed, bleed);
+    const QRect clip = wide.translated(-s_snapshot.origin)
                            .intersected(s_snapshot.image.rect());
     if (!clip.isEmpty()) {
       const QPixmap raw = QPixmap::fromImage(s_snapshot.image.copy(clip));
       if (!raw.isNull()) {
-        return gaussianBlur(raw, blurRadius);
+        const QPixmap blurred = gaussianBlur(raw, blurRadius);
+        // The blurred image is in snapshot-local coords sized to `clip`; the
+        // card sits at its own snapshot-local position inside it. Crop that
+        // back out (the bleed ensures the blur is continuous across the card).
+        const QRect cardLocal = globalRect.translated(-s_snapshot.origin);
+        const QRect crop(cardLocal.left() - clip.left(),
+                         cardLocal.top() - clip.top(), globalRect.width(),
+                         globalRect.height());
+        return blurred.copy(crop.intersected(blurred.rect()));
       }
     }
   }
