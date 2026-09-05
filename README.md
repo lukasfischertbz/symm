@@ -64,7 +64,7 @@ Starts the DBus notification server and displays floating notifications.
 
 ## Config
 
-Config is loaded from `~/.config/symm/config.conf` (respects `$XDG_CONFIG_HOME`).
+Config is loaded from `~/.config/symm/config.conf`.
 If the file is missing, defaults are used.
 
 > [!NOTE]
