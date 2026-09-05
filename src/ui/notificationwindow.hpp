@@ -16,14 +16,15 @@ class QTimer;
 class QScreen;
 class QVBoxLayout;
 
-// Single floating notification card: an independent layer-shell surface so the
-// compositor can blur it as one rectangle (kitty-style frost). Each card is its
-// own window; the manager stacks them vertically via margins. Timed
-// notifications show a draining bar over their timeout and auto-dismiss when
-// it empties; persistent ones (the persistence hint, or expire 0) show no bar
-// and stay until clicked. Hovering a truncated body previews the full text.
-// Notifications carrying action keys get a row of buttons that emit
-// actionInvoked(id, key) when clicked.
+// Single floating notification card: an independent, frameless, always-on-top
+// window (a normal window, NOT a layer-shell surface -- this Hyprland build
+// which is how the card gets its frosted background; see
+// notificationwindow.cpp). The manager stacks them vertically via
+// setTopOffset(); timed notifications show a draining bar over their timeout
+// and auto-dismiss when it empties, persistent ones (the persistence hint, or
+// expire 0) show no bar and stay until clicked. Hovering a truncated body
+// previews the full text. Notifications carrying action keys get a row of
+// buttons that emit actionInvoked(id, key) when clicked.
 class NotificationWindow : public QWidget {
   Q_OBJECT
 public:
@@ -79,8 +80,11 @@ private:
   void buildContent(const Notification &n);
   void layoutContents(const Notification &n);
   void layoutActions(const QStringList &actions);
+  // Registers the card as a layer-shell overlay anchored top-right of its
+  // output, then keeps the stack offset applied as the card moves within the
+  // stack. The compositor owns placement, so cards follow workspace switches.
   void setupLayerShell();
-  void updateBlurPanel();
+  void applyPlacement();
   // Shared tail of hover-expand: re-measures the (now taller-or-shorter)
   // content, resizes the window, and tells the manager to reflow so cards
   // below shift accordingly.
@@ -112,8 +116,8 @@ private:
   bool m_truncated = false;
   bool m_hoverTemporaryExpand = false; // transient, collapses again on leave
 
-  // True while relayoutForBodyChange() is running. On Wayland a window resize
-  // can synthesize enter/leave events, which would collapse a hover-expanded
+  // can synthesize enter/leave events, which
+  //  would collapse a hover-expanded
   // body immediately (relayout -> leave -> shrink -> enter -> expand...). The
   // event handlers ignore enter/leave while this is set.
   bool m_inRelayout = false;
@@ -122,9 +126,9 @@ private:
   // (ms) captured at the moment the pointer entered, restored on leave.
   int m_pausedRemainingMs = 0;
 
-  // Cached frosted-glass backdrop; regenerated on show/resize, not every
-  // paint (a real screen grab + gaussian blur is too slow to do per-frame).
-  QPixmap m_blurPanel;
+  // Current stack offset (px from the screen top) for this card; updated by
+  // the manager's reflow() and used by applyPlacement().
+  int m_topOffset = 0;
 
   // Background texture (config.backgroundImage). Animates via m_bgAnimTimer
   // when the source has more than one frame (GIF/animated WEBP/APNG, or

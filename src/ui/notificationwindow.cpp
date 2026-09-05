@@ -1,7 +1,5 @@
 #include "notificationwindow.hpp"
 
-#include <LayerShellQt/Window>
-
 #include <QApplication>
 #include <QBoxLayout>
 #include <QEnterEvent>
@@ -17,9 +15,18 @@
 #include <QScreen>
 #include <QStringList>
 #include <QTimer>
+#include <QWindow>
 
-#include "blur.hpp"
+#include <LayerShellQt/Window>
+
 #include "texture.hpp"
+
+// The card is a layer-shell overlay (like mako/dunst on Wayland): the
+// compositor anchors it to the output's top-right, it floats above every
+// workspace, and it receives clicks. The background is painted opaque on
+// board, so it reads the same on any wallpaper without depending on the
+// compositor -- the transparent rounded corners are just clipped by the
+// surface's own alpha.
 
 namespace {
 // Break a single run of text into lines that fit within maxWidth px. Wraps at
@@ -100,7 +107,7 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
     : QWidget(parent,
               Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint),
       m_id(n.id), m_appName(n.appName), m_summary(n.summary), m_cfg(cfg),
-      m_targetScreen(targetScreen) {
+      m_targetScreen(targetScreen), m_topOffset(cfg.top) {
   // Pick the accent style for this notification's urgency.
   const QString key = m_cfg.urgencyColorKey(n.urgency);
   if (key == QStringLiteral("low")) {
@@ -112,6 +119,9 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
   }
 
   setAttribute(Qt::WA_TranslucentBackground);
+  // A notification must never steal focus from the user's current app; clicks
+  // (dismiss / actions) still reach the layer surface without activation.
+  setAttribute(Qt::WA_ShowWithoutActivating);
   setWindowTitle(QStringLiteral("notifier"));
   setAttribute(Qt::WA_Hover);
   setMouseTracking(true);
@@ -132,90 +142,71 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
   buildContent(n);
 
   if (targetScreen != nullptr) {
-    // Force native window creation now so we can pin it to a specific
-    // output before the layer-shell surface is bound in showEvent().
+    // Force native window creation before pinning it to a specific output.
     winId();
     if (QWindow *handle = windowHandle()) {
       handle->setScreen(targetScreen);
     }
   }
+  setupLayerShell();
   show();
 }
 
+// Layer-shell placement: the compositor positions the card at the output's
+// top-right (anchored top + right, offset by the current stack offset), so
+// the card stays put on workspace switches the way a panel would -- no
+// client-side move() involved (Wayland forbids it anyway).
 void NotificationWindow::setupLayerShell() {
+  // Force native window creation so the layer-shell role can be attached
+  // before the first show (matching the running daemon's original overlay).
+  winId();
   QWindow *handle = windowHandle();
-  if (!handle) {
+  if (handle == nullptr) {
     return;
   }
   LayerShellQt::Window *shell = LayerShellQt::Window::get(handle);
-  if (!shell) {
+  if (shell == nullptr) {
     return;
   }
   shell->setLayer(LayerShellQt::Window::LayerOverlay);
-  shell->setScope(QStringLiteral("notifier"));
-  using Anchor = LayerShellQt::Window::Anchor;
-  shell->setAnchors(QFlags<Anchor>(Anchor::AnchorTop) |
-                    QFlags<Anchor>(Anchor::AnchorRight));
-  // Margins are owned exclusively by setTopOffset() (the manager's reflow)
-  // -- never set them here, or the first show clobbers the stacked position.
-  shell->setExclusiveZone(-1); // no reserved space, floats over content
+  shell->setAnchors(
+      {LayerShellQt::Window::AnchorTop, LayerShellQt::Window::AnchorRight});
+  shell->setMargins(QMargins(0, m_topOffset, m_cfg.margin, 0));
   shell->setKeyboardInteractivity(
       LayerShellQt::Window::KeyboardInteractivityNone);
 }
 
+void NotificationWindow::applyPlacement() {
+  // Layer-shell anchors handle on-screen placement; this re-applies the stack
+  // offset when a card moves within the stack (see setTopOffset()).
+  if (QWindow *handle = windowHandle()) {
+    if (LayerShellQt::Window *shell = LayerShellQt::Window::get(handle)) {
+      shell->setMargins(QMargins(0, m_topOffset, m_cfg.margin, 0));
+    }
+  }
+}
+
 void NotificationWindow::showEvent(QShowEvent *event) {
-  setupLayerShell();
-  updateBlurPanel();
+  applyPlacement();
   QWidget::showEvent(event);
 }
 
-void NotificationWindow::updateBlurPanel() {
-  // Compositor-side (Hyprland layerrule) blur paints no backdrop pixmap: the
-  // card just stays translucent and the compositor blurs the live desktop
-  // behind it each frame. Skip the (expensive) screenshot pipeline entirely.
-  const bool compositorBlur = m_cfg.compositorBlur && runningOnHyprland();
-  if (!m_cfg.blurEnabled || compositorBlur || size().isEmpty() ||
-      !m_bgFrames.isEmpty()) {
-    // A texture background (if set) always wins over blur -- see
-    // paintEvent -- so skip the (relatively expensive) capture entirely.
-    m_blurPanel = QPixmap();
-    return;
-  }
-  // A real screen grab + gaussian blur is too slow to redo every paint, so
-  // it's cached here and only regenerated on show/resize/expand.
-  const QRect globalRect(mapToGlobal(QPoint(0, 0)), size());
-  m_blurPanel =
-      makeFrostedPanel(globalRect, m_cfg.blurRadius, m_cfg.background);
-  update();
-}
-
 void NotificationWindow::setTopOffset(int topMargin) {
-  const int m = m_cfg.margin;
-  if (QWindow *handle = windowHandle()) {
-    if (LayerShellQt::Window *shell = LayerShellQt::Window::get(handle)) {
-      shell->setMargins(QMargins(0, topMargin, m, 0));
-      // LayerShellQt only re-commits the surface when a redraw is scheduled;
-      // a pure margin change (stack shift, e.g. the card above closing) would
-      // otherwise never reach the compositor and the card wouldn't move up.
-      handle->requestUpdate();
-    }
+  m_topOffset = topMargin;
+  if (isVisible()) {
+    // The card moved within the stack: recompute its on-screen position.
+    applyPlacement();
   }
 }
 
 void NotificationWindow::resizeEvent(QResizeEvent *event) {
   QWidget::resizeEvent(event);
-  updateBlurPanel();
+  applyPlacement();
   emit resized();
 }
 
 void NotificationWindow::moveEvent(QMoveEvent *event) {
   QWidget::moveEvent(event);
-  // The compositor assigns the final position only after the layer-shell
-  // surface is configured, so the first showEvent capture may have used
-  // stale coordinates (see blur.hpp). Re-crop the backdrop now that the card
-  // actually sits where it will be drawn.
-  updateBlurPanel();
-  update();
 }
 
 void NotificationWindow::mousePressEvent(QMouseEvent *event) {
@@ -227,7 +218,6 @@ void NotificationWindow::mousePressEvent(QMouseEvent *event) {
 }
 
 void NotificationWindow::enterEvent(QEnterEvent *event) {
-  // Resize-triggered enter/leave bursts (Wayland) must not be treated as the
   // pointer actually arriving; see m_inRelayout.
   if (m_inRelayout) {
     QWidget::enterEvent(event);
@@ -309,7 +299,6 @@ void NotificationWindow::relayoutForBodyChange() {
   const int minH = timed ? 70 : m_cfg.paddingV * 2 + m_cfg.gap;
   setFixedSize(m_cfg.width, qMax(contentH, minH));
 
-  updateBlurPanel();
   emit resized();
   m_inRelayout = false;
 }
@@ -618,8 +607,11 @@ void NotificationWindow::updateFrom(const Notification &n) {
   }
 
   buildContent(effective);
-  updateBlurPanel();
-  emit resized(); // the manager reflows whatever sits below this card
+  // In-place replacements (same app+summary, e.g. the theme picker's preview
+  // cards) can end up with the same window size, in which case Qt skips the
+  // repaint and the previous theme's background would linger. Force one.
+  emit resized();
+  update();
 }
 
 void NotificationWindow::onActionClicked(const QString &key) {
@@ -691,36 +683,13 @@ void NotificationWindow::paintEvent(QPaintEvent *) {
     tint.setAlphaF(
         static_cast<float>(tint.alphaF() * m_cfg.backgroundOpacity * 0.5));
     p.fillPath(path, tint);
-  } else if (m_cfg.blurEnabled && runningOnHyprland() && m_cfg.compositorBlur) {
-    // Hyprland compositor blur (the kitty mechanism): Hyprland blurs the live
-    // desktop behind the whole layer surface; the card only lays a translucent
-    // tint on top so the frosted content shows through. TEXT IS UNTOUCHED --
-    // the child widgets draw as solid opaque pixels on the surface and are
-    // never part of the blur.
-    p.setClipPath(path);
-    QColor tint = m_cfg.background;
-    const float base = static_cast<float>(tint.alphaF());
-    const float a = base * static_cast<float>(m_cfg.backgroundOpacity) * 0.40f;
-    tint.setAlphaF(qBound(0.0f, a, 1.0f));
-    p.fillPath(path, tint);
-    p.setClipping(false);
-  } else if (m_cfg.blurEnabled && !m_blurPanel.isNull()) {
-    p.setClipPath(path);
-    p.drawPixmap(0, 0, m_blurPanel);
-    p.setClipping(false);
-
-    // Kitty-style: the blurred desktop shows through almost unobscured. Only a
-    // faint darkening is applied so text stays legible -- never an opaque
-    // color wash (that is what made it read as a flat colored panel instead of
-    // real blurred content behind the card).
-    QColor tint = m_cfg.background;
-    const float base = static_cast<float>(tint.alphaF());
-    const float a = base * static_cast<float>(m_cfg.backgroundOpacity) * 0.20f;
-    tint.setAlphaF(qBound(0.0f, a, 1.0f));
-    p.fillPath(path, tint);
   } else {
+    // Interior is kept just under fully opaque so the compositor still
+    // treats the layer surface as translucent -- a fully-opaque one gets a
+    // plain square base drawn behind it. Corners stay transparent, so the
+    // card reads as rounded on any backdrop.
     QColor fill = m_cfg.background;
-    fill.setAlphaF(static_cast<float>(fill.alphaF() * m_cfg.backgroundOpacity));
+    fill.setAlpha(qBound(235, fill.alpha(), 250));
     p.fillPath(path, fill);
   }
 

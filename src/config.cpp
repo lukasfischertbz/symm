@@ -151,10 +151,6 @@ Config Config::load() {
   c.iconSize = readInt(QStringLiteral("icon_size"), c.iconSize);
   c.bodyTruncateChars =
       readInt(QStringLiteral("body_truncate_chars"), c.bodyTruncateChars);
-  c.blurEnabled = readBool(QStringLiteral("blur_enabled"), c.blurEnabled);
-  c.blurRadius = readInt(QStringLiteral("blur_radius"), c.blurRadius);
-  c.compositorBlur =
-      readBool(QStringLiteral("compositor_blur"), c.compositorBlur);
   c.useActiveMonitor =
       readBool(QStringLiteral("use_active_monitor"), c.useActiveMonitor);
 

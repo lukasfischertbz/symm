@@ -2,18 +2,30 @@
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDebug>
-
-#include <LayerShellQt/Shell>
+#include <QtGlobal>
 
 #include "config.hpp"
 #include "dbus/notificationserver.hpp"
-#include "ui/blur.hpp"
 #include "ui/notificationmanager.hpp"
 
 int main(int argc, char *argv[]) {
+  // Cards are layer-shell surfaces; tell Qt's Wayland integration to use the
+  // layer-shell role (must happen before the platform is initialized).
+  qputenv("QT_WAYLAND_SHELL_INTEGRATION", "layer-shell");
   QApplication app(argc, argv);
   QApplication::setApplicationName(QStringLiteral("symm"));
   QApplication::setApplicationDisplayName(QStringLiteral("symm"));
+
+  // Cards are layer-shell overlays, which only exist on Wayland. Running under
+  // another platform (e.g. xcb/XWayland from a stale environment or a manual
+  // launch) silently degrades into plain windows that no longer float above
+  // workspaces.
+  if (!QGuiApplication::platformName().contains("wayland")) {
+    qWarning() << "symm: running on" << QGuiApplication::platformName()
+               << "- cards need the Wayland platform for layer-shell "
+                  "placement. Start the daemon without QT_QPA_PLATFORM=xcb "
+                  "(make run does this).";
+  }
 
   // CLI subcommand: talk to the running daemon over D-Bus and exit.
   const QStringList args = QApplication::arguments();
@@ -37,15 +49,9 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  // Enable wlr-layer-shell BEFORE any windows are created so notifications
-  // float as true overlay surfaces (not tiled windows).
-#if QT_VERSION < QT_VERSION_CHECK(6, 6, 0)
-  LayerShellQt::Shell::useLayerShell();
-#endif
-
   const Config cfg = Config::load();
-  qInfo("symm daemon v2: persistence stays until clicked; the timer bar is "
-        "only mounted for timed notifications");
+  // Per-notification entries re-read the config themselves (see
+  // NotificationManager::show), so a theme switch applies without a restart.
 
   NotificationServer server(&app);
   server.setTimeouts(cfg.timeoutDefaultMs, cfg.timeoutNormalMs,
@@ -59,25 +65,6 @@ int main(int argc, char *argv[]) {
   if (!server.registerObject()) {
     qCritical() << "Could not register /org/freedesktop/Notifications";
     return 1;
-  }
-
-  // Blur strategy:
-  //  - Hyprland + compositor_blur: ask Hyprland to blur the live desktop
-  //    behind the "notifier" overlay namespace (layerrule), exactly like
-  //    kitty; cards stay translucent and no screenshot is needed.
-  //  - Otherwise: grab a "clean" full-screen backdrop once, before the daemon
-  //    starts processing notifications. Cards crop their own region out of
-  //    this later; grabbing per-card would capture the card itself
-  //    (self-blur) or run at stale pre-position coordinates (see blur.hpp).
-  //    Done after the D-Bus name is taken and the object registered so a
-  //    slow/failing capture (grim absent, early boot before the compositor
-  //    painted) never blocks service bring-up.
-  if (cfg.blurEnabled) {
-    if (cfg.compositorBlur && runningOnHyprland()) {
-      enableCompositorBlur();
-    } else {
-      initBlurSource();
-    }
   }
 
   NotificationManager manager(cfg, &app);

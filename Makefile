@@ -23,6 +23,8 @@ clear:
 	-pkill -x dunst || true
 
 run:
+	# Cards are layer-shell overlays and need the compositor to place them --
+	# launch under the default (Wayland) platform.
 	setsid $(PREFIX)/bin/$(BIN) >/tmp/symm.log 2>&1 < /dev/null &
 
 theme:

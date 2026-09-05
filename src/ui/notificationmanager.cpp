@@ -20,7 +20,6 @@
 #include "texture.hpp"
 
 #include "../hyprland.hpp"
-#include "blur.hpp"
 
 namespace {
 // Resolves the QScreen matching the currently focused Hyprland output, or
@@ -75,11 +74,6 @@ void NotificationManager::show(const Notification &n) {
   trimHistory();
   saveHistory();
 
-  // A fresh card is about to hit an empty desktop: re-grab the backdrop now
-  // (nothing of ours is on screen, so no self-capture) so the frosted glass
-  // reflects what's actually there instead of daemon-startup content.
-  refreshBackdropIfIdle();
-
   // If we're already at the visible cap, queue it instead of creating a
   // window: this is also what makes the timeout "only start once visible"
   // -- the NotificationWindow (and its auto-dismiss QTimer) simply doesn't
@@ -118,21 +112,6 @@ bool NotificationManager::replaceMatchingCard(const Notification &n) {
     }
   }
   return false;
-}
-
-void NotificationManager::refreshBackdropIfIdle() {
-  const bool compositor = m_cfg.compositorBlur && runningOnHyprland();
-  if (!m_cfg.blurEnabled || compositor) {
-    return;
-  }
-  for (const QPointer<NotificationWindow> &p : m_windows) {
-    if (p != nullptr) {
-      return; // a card is on screen; the cached frame stays valid
-    }
-  }
-  // No overlay of ours is on the desktop: a re-grab can't capture our own
-  // cards, so the frosted backdrop for the next card is fresh (live).
-  initBlurSource();
 }
 
 void NotificationManager::displayNow(const Notification &n) {
@@ -191,7 +170,6 @@ void NotificationManager::promoteFromQueue() {
   if (m_cfg.maxVisible > 0 && m_windows.size() >= m_cfg.maxVisible) {
     return;
   }
-  refreshBackdropIfIdle();
   const Notification next = m_pending.takeFirst();
   displayNow(next);
 }

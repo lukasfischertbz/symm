@@ -83,8 +83,6 @@ font_size = 10.5
 timeout_low = 10000
 timeout_normal = 5000
 timeout_critical = 15000
-# Notifications sent with -h string:persistence:true (or notify-send -t 0)
-# never auto-dismiss -- they stay until clicked.
 
 [colors]
 background = #1e1e2e
@@ -118,10 +116,9 @@ Hirarchy is
 - [x] Timeout visualizer
 - [x] Actions
 - [x] Transparency
-- [x] Details (click a truncated notification to expand it)
-- [x] Use active monitor (Hyprland; on send only)
+- [x] Details
+- [x] Use active monitor
 - [x] Themes
 - [ ] History
 - [ ] Icons
-- [ ] App-side blur (kitty-style frosted background, any compositor)
 - [ ] Images

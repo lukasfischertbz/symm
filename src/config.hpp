@@ -35,16 +35,6 @@ struct Config {
   int bodyTruncateChars = 180; // body longer than this is collapsed with a
                                // "..."; click the card to expand it
 
-  bool blurEnabled = true; // kitty-style frosted background behind cards
-  int blurRadius = 24;     // gaussian blur radius in px
-
-  // When true and running under Hyprland, use the compositor's own live
-  // region blur for the overlay (layerrule blur,notifier) and keep the card
-  // semi-transparent -- exactly the mechanism kitty uses. Defaults to false:
-  // the app-side screenshot blur renders a guaranteed frosted backdrop on any
-  // compositor without depending on Hyprland's blur being enabled.
-  bool compositorBlur = false;
-
   bool useActiveMonitor = true; // (Hyprland only) place new notifications on
                                 // the currently focused monitor at send time
 
@@ -85,7 +75,7 @@ struct Config {
                                         // stretching/cropping it.
 
   QColor background{0x1e, 0x1e, 0x2e, 238};
-  double backgroundOpacity = 1.0; // kitty-style: 1.0 opaque, 0.0 transparent
+  double backgroundOpacity = 1.0;
   QColor textColor{0xcd, 0xd6, 0xf4};
   QColor dimTextColor{0xa6, 0xad, 0xc8};
 

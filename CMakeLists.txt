@@ -31,8 +31,6 @@ add_executable(symm
     src/ui/notificationhistorywindow.cpp
     src/ui/timerbarwidget.hpp
     src/ui/timerbarwidget.cpp
-    src/ui/blur.hpp
-    src/ui/blur.cpp
     src/ui/texture.hpp
     src/ui/texture.cpp
 )
