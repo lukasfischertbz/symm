@@ -164,6 +164,38 @@ void NotificationManager::remove(uint id) {
   promoteFromQueue();
 }
 
+void NotificationManager::update(const Notification &n) {
+  for (QPointer<NotificationWindow> &p : m_windows) {
+    if (p != nullptr && p->id() == n.id) {
+      p->updateFrom(n);
+      // Keep one history entry per notification id: refresh it in place
+      // instead of appending a new row per update.
+      for (HistoryEntry &e : m_history) {
+        if (e.id == n.id) {
+          e.summary = n.summary;
+          e.body = n.body;
+          e.urgency = n.urgency;
+          e.timestamp = QDateTime::currentDateTime();
+          saveHistory();
+          break;
+        }
+      }
+      return;
+    }
+  }
+  // Not on screen yet but queued behind the visible cap: replace the queued
+  // copy so it shows the latest payload when it's promoted.
+  for (Notification &q : m_pending) {
+    if (q.id == n.id) {
+      q = n;
+      return;
+    }
+  }
+  // No live card: the old one was already closed/dismissed. Per the spec a
+  // replace on an id that no longer exists behaves as a fresh notification.
+  show(n);
+}
+
 void NotificationManager::showHistoryWindow() {
   if (m_historyWindow == nullptr) {
     m_historyWindow = new NotificationHistoryWindow(m_cfg, nullptr);

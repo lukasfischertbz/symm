@@ -128,67 +128,7 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
     }
   }
 
-  layoutContents(n);
-
-  auto *outer = static_cast<QVBoxLayout *>(this->layout());
-
-  // The bar tracks the remaining time on notifications that auto-dismiss:
-  // timed ones drain over their exact timeout. Persistent ones (persistence
-  // hint / expire 0) stay until clicked; they get no bar at all -- the bar
-  // widget is only mounted into the layout when the notification is timed,
-  // so it can neither render nor reserve dead space.
-  const bool timed = !n.persist && n.timeoutMs > 0;
-
-  m_timerBar = new TimerBarWidget(this);
-  m_timerBar->setBarColor(m_style.bar);
-  if (!m_cfg.barImage.isEmpty()) {
-    m_timerBar->setBarImage(m_cfg.barImage);
-  }
-  const bool edgeBar = m_cfg.barStyle == QStringLiteral("edge");
-  const bool barAbove = m_cfg.barPosition == QStringLiteral("above");
-  m_timerBar->setEdgeStyle(edgeBar);
-  m_timerBar->setFillUp(m_cfg.barFill);
-  m_timerBar->setMoveRight(m_cfg.barMoveRight);
-  m_timerBar->setVisible(timed);
-
-  if (timed) {
-    if (edgeBar) {
-      // Flush with the card's literal border, no padding -- goes in the
-      // 0-margin outer layout, not the padded content column.
-      if (barAbove) {
-        outer->insertWidget(0, m_timerBar);
-      } else {
-        outer->addWidget(m_timerBar);
-      }
-    } else {
-      // "inside" (default): padded like everything else, positioned above or
-      // below the message text within the content column.
-      if (barAbove) {
-        m_contentLayout->insertWidget(0, m_timerBar);
-      } else {
-        m_contentLayout->addWidget(m_timerBar);
-      }
-    }
-  }
-
-  outer->activate();
-  int contentH = outer->sizeHint().height();
-  // Minimum height: timed cards keep a comfortable floor; bar-free cards
-  // size to their content so they don't inherit bar dead space.
-  const int minH = timed ? 70 : m_cfg.paddingV * 2 + m_cfg.gap;
-  setFixedSize(m_cfg.width, qMax(contentH, minH));
-
-  if (timed) {
-    m_lifeTimer = new QTimer(this);
-    m_lifeTimer->setInterval(n.timeoutMs);
-    connect(m_lifeTimer, &QTimer::timeout, this,
-            &NotificationWindow::onTimeoutFinished);
-    m_lifeTimer->start();
-    m_timerBar->start(n.timeoutMs);
-  }
-  // Persistent notifications get no life timer and no bar: they stay on
-  // screen until the user clicks them (or an action / CloseNotification is
-  // invoked). Hover-pause is a no-op for them because m_lifeTimer is null.
+  buildContent(n);
 
   if (targetScreen != nullptr) {
     // Force native window creation now so we can pin it to a specific
@@ -553,6 +493,124 @@ void NotificationWindow::layoutActions(const QStringList &actions) {
   } else {
     m_contentLayout->addWidget(rowWidget);
   }
+}
+
+void NotificationWindow::buildContent(const Notification &n) {
+  // Teardown of any previous content. Everything here is either null on the
+  // first call (fresh card) or owned by this widget, so this doubles as the
+  // update-in-place path for replaced notifications.
+  if (m_lifeTimer != nullptr) {
+    m_lifeTimer->stop();
+    m_lifeTimer->deleteLater();
+    m_lifeTimer = nullptr;
+  }
+  if (m_timerBar != nullptr) {
+    delete m_timerBar;
+    m_timerBar = nullptr;
+  }
+  delete m_iconLabel;
+  m_iconLabel = nullptr;
+  delete m_summaryLabel;
+  m_summaryLabel = nullptr;
+  delete m_bodyLabel;
+  m_bodyLabel = nullptr;
+  delete m_actionsRowWidget;
+  m_actionsRowWidget = nullptr;
+  m_actionButtons.clear();
+  m_fullBody.clear();
+  m_truncatedBody.clear();
+  m_truncated = false;
+  m_hoverTemporaryExpand = false;
+  m_pausedRemainingMs = 0;
+
+  // Delete the old layout (labels/buttons/widgets were deleted above; the
+  // layout only holds the items/sub-layouts, which are owned by it).
+  delete layout();
+  layoutContents(n);
+
+  auto *outer = static_cast<QVBoxLayout *>(this->layout());
+
+  // The bar tracks the remaining time on notifications that auto-dismiss:
+  // timed ones drain over their exact timeout. Persistent ones (persistence
+  // hint / expire 0) stay until clicked; they get no bar at all -- the bar
+  // widget is only mounted into the layout when the notification is timed,
+  // so it can neither render nor reserve dead space.
+  const bool timed = !n.persist && n.timeoutMs > 0;
+
+  m_timerBar = new TimerBarWidget(this);
+  m_timerBar->setBarColor(m_style.bar);
+  if (!m_cfg.barImage.isEmpty()) {
+    m_timerBar->setBarImage(m_cfg.barImage);
+  }
+  const bool edgeBar = m_cfg.barStyle == QStringLiteral("edge");
+  const bool barAbove = m_cfg.barPosition == QStringLiteral("above");
+  m_timerBar->setEdgeStyle(edgeBar);
+  m_timerBar->setFillUp(m_cfg.barFill);
+  m_timerBar->setMoveRight(m_cfg.barMoveRight);
+  m_timerBar->setVisible(timed);
+
+  if (timed) {
+    if (edgeBar) {
+      // Flush with the card's literal border, no padding -- goes in the
+      // 0-margin outer layout, not the padded content column.
+      if (barAbove) {
+        outer->insertWidget(0, m_timerBar);
+      } else {
+        outer->addWidget(m_timerBar);
+      }
+    } else {
+      // "inside" (default): padded like everything else, positioned above or
+      // below the message text within the content column.
+      if (barAbove) {
+        m_contentLayout->insertWidget(0, m_timerBar);
+      } else {
+        m_contentLayout->addWidget(m_timerBar);
+      }
+    }
+  }
+
+  outer->activate();
+  int contentH = outer->sizeHint().height();
+  // Minimum height: timed cards keep a comfortable floor; bar-free cards
+  // size to their content so they don't inherit bar dead space.
+  const int minH = timed ? 70 : m_cfg.paddingV * 2 + m_cfg.gap;
+  setFixedSize(m_cfg.width, qMax(contentH, minH));
+
+  if (timed) {
+    m_lifeTimer = new QTimer(this);
+    m_lifeTimer->setInterval(n.timeoutMs);
+    connect(m_lifeTimer, &QTimer::timeout, this,
+            &NotificationWindow::onTimeoutFinished);
+    m_lifeTimer->start();
+    m_timerBar->start(n.timeoutMs);
+  }
+  // Persistent notifications get no life timer and no bar: they stay on
+  // screen until the user clicks them (or an action / CloseNotification is
+  // invoked). Hover-pause is a no-op for them because m_lifeTimer is null.
+}
+
+void NotificationWindow::updateFrom(const Notification &n) {
+  // An update can change urgency, so re-pick the accent style.
+  const QString key = m_cfg.urgencyColorKey(n.urgency);
+  if (key == QStringLiteral("low")) {
+    m_style = m_cfg.low;
+  } else if (key == QStringLiteral("critical")) {
+    m_style = m_cfg.critical;
+  } else {
+    m_style = m_cfg.normal;
+  }
+
+  // Keep the existing icon if the update doesn't ship one (common with audio
+  // progress updates) -- otherwise the card would visibly drop its icon and
+  // jump on every refresh.
+  Notification effective = n;
+  if (effective.icon.isNull() && m_iconLabel != nullptr && m_cfg.iconsEnabled) {
+    effective.icon = QIcon(m_iconLabel->pixmap());
+  }
+
+  buildContent(effective);
+  updateBlurPanel();
+  emit resized(); // the manager reflows whatever sits below this card
 }
 
 void NotificationWindow::onActionClicked(const QString &key) {

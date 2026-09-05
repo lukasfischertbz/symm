@@ -42,6 +42,12 @@ public:
   // running height counter.
   QScreen *targetScreen() const { return m_targetScreen; }
 
+  // Replaces the card's payload in place (a Notification with the same id,
+  // e.g. audio progress updates). Rebuilds labels/actions/bar from the new
+  // payload, reapplies the height/urgency style, and notifies the manager to
+  // reflow through resized().
+  void updateFrom(const Notification &n);
+
 signals:
   void dismissed(uint id);
   void actionInvoked(uint id, const QString &key);
@@ -62,6 +68,10 @@ private slots:
   void onBgFrameTick();
 
 private:
+  // Builds (or, on update, rebuilds) the card's entire content from `n`:
+  // icon/summary/body/actions plus the timer-bar mount, final size and
+  // auto-dismiss timer. Shared by the constructor and updateFrom().
+  void buildContent(const Notification &n);
   void layoutContents(const Notification &n);
   void layoutActions(const QStringList &actions);
   void setupLayerShell();

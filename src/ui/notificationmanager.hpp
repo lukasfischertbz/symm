@@ -30,6 +30,9 @@ public:
 
   void show(const Notification &n);
   void remove(uint id);
+  // Update-in-place for a replaced notification (replacesId): refreshes the
+  // live card with the same id, or the queued copy if it isn't on screen yet.
+  void update(const Notification &n);
 
   QList<HistoryEntry> history() const { return m_history; }
   void clearHistory();

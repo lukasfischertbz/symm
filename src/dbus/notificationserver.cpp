@@ -110,10 +110,15 @@ uint NotificationServer::Notify(const QString &appName, uint replacesId,
                                 const QString &appIcon, const QString &summary,
                                 const QString &body, const QStringList &actions,
                                 const QVariantMap &hints, int expireTimeout) {
-  Q_UNUSED(replacesId);
+  // Update-in-place: a valid replacesId (one this daemon handed out) reuses
+  // the existing card instead of stacking a new one -- audio progress /
+  // now-playing, transfers, etc. anything unknown just becomes a fresh
+  // notification.
+  const bool isUpdate =
+      replacesId > 0 && m_active.contains(replacesId) && replacesId != 0;
 
   Notification n;
-  n.id = m_nextId++;
+  n.id = isUpdate ? replacesId : m_nextId++;
   n.appName = appName;
   n.summary = summary;
   n.body = body;
@@ -192,11 +197,16 @@ uint NotificationServer::Notify(const QString &appName, uint replacesId,
             .constData());
 
   m_active.insert(n.id);
-  emit notificationReceived(n);
+  if (n.id == replacesId) {
+    emit notificationUpdated(n);
+  } else {
+    emit notificationReceived(n);
+  }
   return n.id;
 }
 
 void NotificationServer::CloseNotification(uint id) {
+  m_active.remove(id);
   emit notificationClosed(id, 3); // 3 = NotificationClosed
 }
 
@@ -213,6 +223,7 @@ void NotificationServer::notifyActionInvoked(uint id,
   QDBusConnection::sessionBus().send(signal);
 
   emit notificationClosed(id, 2); // 2 = dismissed by user action
+  m_active.remove(id);
 }
 
 QVariantList NotificationServer::GetHistory() {

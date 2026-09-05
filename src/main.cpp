@@ -76,6 +76,8 @@ int main(int argc, char *argv[]) {
 
   QObject::connect(&server, &NotificationServer::notificationReceived, &manager,
                    &NotificationManager::show);
+  QObject::connect(&server, &NotificationServer::notificationUpdated, &manager,
+                   &NotificationManager::update);
 
   QObject::connect(&manager, &NotificationManager::actionInvoked, &server,
                    &NotificationServer::notifyActionInvoked);

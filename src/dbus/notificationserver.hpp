@@ -35,6 +35,9 @@ public:
 
 signals:
   void notificationReceived(const Notification &n);
+  // A replace: the client re-used an id we handed out. The card should update
+  // in place rather than stack a new one.
+  void notificationUpdated(const Notification &n);
   void notificationClosed(uint id, uint reason);
   // Freedesktop signal: tells the client that created the notification which
   // action key was chosen. Emitted with the sender's D-Bus connection.
