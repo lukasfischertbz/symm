@@ -110,10 +110,15 @@ uint NotificationServer::Notify(const QString &appName, uint replacesId,
                                 const QString &appIcon, const QString &summary,
                                 const QString &body, const QStringList &actions,
                                 const QVariantMap &hints, int expireTimeout) {
-  Q_UNUSED(replacesId);
+  // Update-in-place: a valid replacesId (one this daemon handed out) reuses
+  // the existing card instead of stacking a new one -- audio progress /
+  // now-playing, transfers, etc. anything unknown just becomes a fresh
+  // notification.
+  const bool isUpdate =
+      replacesId > 0 && m_active.contains(replacesId) && replacesId != 0;
 
   Notification n;
-  n.id = m_nextId++;
+  n.id = isUpdate ? replacesId : m_nextId++;
   n.appName = appName;
   n.summary = summary;
   n.body = body;
@@ -145,29 +150,29 @@ uint NotificationServer::Notify(const QString &appName, uint replacesId,
   int urgency = hints.value(QStringLiteral("urgency")).toInt(&ok);
   n.urgency = ok ? urgency : 1;
 
-  // Timeout precedence (what you asked: `-t` controls it, config is the
-  // default).
-  //   * expireTimeout > 0   -> exact auto-dismiss duration (CLI "off"). Never
-  //                            overridden by config.
-  //   * expireTimeout == -1 -> persistent IF persist_on_minus_one is on (CLI
-  //                            "on"). This is what `notify-send -t -1` sends,
-  //                            and also what a plain `notify-send` sends (no
-  //                            -t) — they are indistinguishable, so the config
-  //                            flag is the global default for that sentinel.
-  //   * expireTimeout == 0  -> server-decided urgency default.
+  // Timeout precedence per the freedesktop spec (`-t` wins, else the
+  // sentinel rules):
+  //   * expireTimeout > 0   -> exact auto-dismiss duration. Never overridden.
+  //   * expireTimeout == 0  -> "never expires": stays until the user closes
+  //                            it. This is what `notify-send -t 0` sends.
+  //   * expireTimeout == -1 -> server decides: use this daemon's urgency
+  //                            default. This is what a plain `notify-send`
+  //                            sends (no -t), so it must NOT be treated as
+  //                            persistent.
+  // The nonstandard `persistence` hint (notify-send -h string:persistence:true)
+  // also means "never expires", unless an explicit positive -t overrides it.
   n.persist = hints.value(QStringLiteral("persistence")).toBool();
   if (expireTimeout > 0) {
     n.persist = false;
-  } else if (expireTimeout == -1 && m_persistOnMinusOne) {
-    n.persist = true;
-  }
-  n.timeoutMs = 0;
-  if (n.persist) {
-    n.timeoutMs = -1;
-  } else if (expireTimeout > 0) {
     n.timeoutMs = expireTimeout;
+  } else if (expireTimeout == 0) {
+    n.persist = true;
+    n.timeoutMs = -1;
+  } else if (n.persist) {
+    // expireTimeout == -1 plus the persistence hint: never expires.
+    n.timeoutMs = -1;
   } else {
-    // 0 / -1-with-persist-off: server-decided default based on urgency.
+    // expireTimeout == -1: server-decided default based on urgency.
     switch (n.urgency) {
     case 1:
       n.timeoutMs = m_timeoutNormalMs;
@@ -182,16 +187,26 @@ uint NotificationServer::Notify(const QString &appName, uint replacesId,
   }
   n.actions = actions;
 
-  qInfo("notify: urgency=%d expire=%d timeout=%lld persist=%d", n.urgency,
-        expireTimeout, static_cast<long long>(n.timeoutMs),
-        static_cast<int>(n.persist));
+  qInfo("notify: urgency=%d expire=%d timeout=%lld persist=%d "
+        "persistenceHint='%s'",
+        n.urgency, expireTimeout, static_cast<long long>(n.timeoutMs),
+        static_cast<int>(n.persist),
+        hints.value(QStringLiteral("persistence"))
+            .toString()
+            .toUtf8()
+            .constData());
 
   m_active.insert(n.id);
-  emit notificationReceived(n);
+  if (n.id == replacesId) {
+    emit notificationUpdated(n);
+  } else {
+    emit notificationReceived(n);
+  }
   return n.id;
 }
 
 void NotificationServer::CloseNotification(uint id) {
+  m_active.remove(id);
   emit notificationClosed(id, 3); // 3 = NotificationClosed
 }
 
@@ -208,6 +223,7 @@ void NotificationServer::notifyActionInvoked(uint id,
   QDBusConnection::sessionBus().send(signal);
 
   emit notificationClosed(id, 2); // 2 = dismissed by user action
+  m_active.remove(id);
 }
 
 QVariantList NotificationServer::GetHistory() {

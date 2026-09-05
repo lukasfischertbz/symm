@@ -8,11 +8,12 @@
 class QLabel;
 class QVBoxLayout;
 
-// Frameless translucent overlay listing the notification history. The window's
-// own paintEvent draws the panel background AND every card's rounded background
-// and border directly, because child widgets do not composite their backgrounds
-// over a WA_TranslucentBackground layer-shell surface. Children only render
-// text.
+// Frameless translucent layer-shell overlay listing the notification history,
+// anchored top-right of its output (so it follows workspace switches and, like
+// a panel, sits above regular windows). The window's own paintEvent draws the
+// panel background AND every card's rounded background and border directly,
+// because child widgets do not composite their backgrounds over a
+// WA_TranslucentBackground surface. Children only render text.
 //
 // Opened via the `symm history` command (ShowHistory D-Bus slot).
 class NotificationHistoryWindow : public QWidget {
@@ -31,6 +32,7 @@ protected:
 
 private:
   void setupLayerShell();
+  void applyPlacement();
   QWidget *buildEntry(const HistoryEntry &entry);
   void clearEntries();
 

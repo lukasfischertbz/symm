@@ -18,12 +18,10 @@ class NotificationServer : public QObject, protected QDBusContext {
 public:
   explicit NotificationServer(QObject *parent = nullptr);
 
-  void setTimeouts(int defaultMs, int normalMs, int criticalMs,
-                   bool persistMinusOne) {
+  void setTimeouts(int defaultMs, int normalMs, int criticalMs) {
     m_timeoutDefaultMs = defaultMs;
     m_timeoutNormalMs = normalMs;
     m_timeoutCriticalMs = criticalMs;
-    m_persistOnMinusOne = persistMinusOne;
   }
 
   void setManager(NotificationManager *manager) { m_manager = manager; }
@@ -37,6 +35,9 @@ public:
 
 signals:
   void notificationReceived(const Notification &n);
+  // A replace: the client re-used an id we handed out. The card should update
+  // in place rather than stack a new one.
+  void notificationUpdated(const Notification &n);
   void notificationClosed(uint id, uint reason);
   // Freedesktop signal: tells the client that created the notification which
   // action key was chosen. Emitted with the sender's D-Bus connection.
@@ -63,7 +64,6 @@ private:
   int m_timeoutDefaultMs = 10000;
   int m_timeoutNormalMs = 5000;
   int m_timeoutCriticalMs = 15000;
-  bool m_persistOnMinusOne = false;
   QSet<uint> m_active;
   NotificationManager *m_manager = nullptr;
 };

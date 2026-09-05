@@ -30,6 +30,9 @@ public:
 
   void show(const Notification &n);
   void remove(uint id);
+  // Update-in-place for a replaced notification (replacesId): refreshes the
+  // live card with the same id, or the queued copy if it isn't on screen yet.
+  void update(const Notification &n);
 
   QList<HistoryEntry> history() const { return m_history; }
   void clearHistory();
@@ -39,6 +42,10 @@ signals:
   void actionInvoked(uint id, const QString &key);
 
 private:
+  // Lenient update-in-place: a live card with the same appName AND summary
+  // exists (a client that never sends replaces_id) -- refresh it instead of
+  // stacking a new card. Returns true when a card was updated.
+  bool replaceMatchingCard(const Notification &n);
   void trimHistory();
   void loadHistory();
   void saveHistory() const;

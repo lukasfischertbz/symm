@@ -1,7 +1,5 @@
 #include "notificationhistorywindow.hpp"
 
-#include <LayerShellQt/Window>
-
 #include <QBoxLayout>
 #include <QFontMetrics>
 #include <QHBoxLayout>
@@ -10,6 +8,10 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QPushButton>
+#include <QScreen>
+#include <QWindow>
+
+#include <LayerShellQt/Window>
 
 namespace {
 QString relativeTimeString(const QDateTime &ts) {
@@ -50,6 +52,8 @@ NotificationHistoryWindow::NotificationHistoryWindow(const Config &cfg,
       m_cfg(cfg) {
   setAttribute(Qt::WA_TranslucentBackground);
   setAttribute(Qt::WA_DeleteOnClose);
+
+  setupLayerShell();
 
   setFixedWidth(m_cfg.width);
   setFixedHeight(500);
@@ -178,8 +182,8 @@ HistoryCard::HistoryCard(const HistoryEntry &entry, const Config &cfg,
 }
 
 void NotificationHistoryWindow::showTopRight() {
+  applyPlacement();
   show();
-  raise();
 }
 
 void NotificationHistoryWindow::leaveEvent(QEvent *event) {
@@ -188,37 +192,43 @@ void NotificationHistoryWindow::leaveEvent(QEvent *event) {
 }
 
 void NotificationHistoryWindow::showEvent(QShowEvent *event) {
-  setupLayerShell();
+  applyPlacement();
   QWidget::showEvent(event);
 }
 
 void NotificationHistoryWindow::setupLayerShell() {
+  winId();
+  applyPlacement();
+}
+
+void NotificationHistoryWindow::applyPlacement() {
+  // Layer-shell placement: anchored top-right of the output, inset by the
+  // configured margin/top. No client-side move() (Wayland forbids it).
   QWindow *handle = windowHandle();
   if (handle == nullptr) {
     return;
   }
-  LayerShellQt::Window *shell = LayerShellQt::Window::get(handle);
-  if (shell == nullptr) {
-    return;
+  if (LayerShellQt::Window *shell = LayerShellQt::Window::get(handle)) {
+    shell->setLayer(LayerShellQt::Window::LayerOverlay);
+    shell->setAnchors(
+        {LayerShellQt::Window::AnchorTop, LayerShellQt::Window::AnchorRight});
+    shell->setMargins(QMargins(0, m_cfg.top, m_cfg.margin, 0));
+    shell->setKeyboardInteractivity(
+        LayerShellQt::Window::KeyboardInteractivityNone);
   }
-  shell->setLayer(LayerShellQt::Window::LayerOverlay);
-  using Anchor = LayerShellQt::Window::Anchor;
-  shell->setAnchors(QFlags<Anchor>(Anchor::AnchorTop) |
-                    QFlags<Anchor>(Anchor::AnchorRight));
-  shell->setMargins(QMargins(0, m_cfg.top, m_cfg.margin, 0));
-  shell->setExclusiveZone(-1);
-  shell->setKeyboardInteractivity(
-      LayerShellQt::Window::KeyboardInteractivityNone);
 }
 
 void NotificationHistoryWindow::paintEvent(QPaintEvent * /*event*/) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
 
-  // Container panel.
+  // Container panel: solid opaque so it reads on any wallpaper, no compositor
+  // involvement.
   QPainterPath panel;
   panel.addRoundedRect(rect(), m_cfg.radius, m_cfg.radius);
-  p.fillPath(panel, m_cfg.background);
+  QColor panelFill = m_cfg.background;
+  panelFill.setAlpha(qBound(235, panelFill.alpha(), 250));
+  p.fillPath(panel, panelFill);
   QColor panelBorder = m_cfg.normal.accent;
   panelBorder.setAlpha(150);
   p.setPen(QPen(panelBorder, 1));
@@ -227,7 +237,7 @@ void NotificationHistoryWindow::paintEvent(QPaintEvent * /*event*/) {
   // Each card's rounded background + border, drawn relative to this window.
   QColor bg = m_cfg.background;
   QColor cardBg = bg.lighter(112);
-  cardBg.setAlpha(bg.alpha());
+  cardBg.setAlpha(255);
   QColor cardBorder = m_cfg.normal.accent;
   cardBorder.setAlpha(180);
   QPen cardPen(cardBorder, 2);

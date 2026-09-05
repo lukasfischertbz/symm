@@ -2,12 +2,10 @@
 
 #include <algorithm>
 
-#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QMap>
 #include <QStandardPaths>
-#include <QStringList>
 
 namespace {
 
@@ -30,20 +28,25 @@ struct IniData {
         continue;
       }
       if (raw.startsWith(QLatin1Char('[')) && raw.endsWith(QLatin1Char(']'))) {
-        current = raw.mid(1, raw.size() - 2).trimmed();
+        current = raw.mid(1, raw.size() - 2).trimmed().toLower();
         continue;
       }
       const int eq = static_cast<int>(raw.indexOf(QLatin1Char('=')));
       if (eq < 0) {
         continue;
       }
-      const QString key = raw.left(eq).trimmed();
+      const QString key = raw.left(eq).trimmed().toLower();
       QString val = raw.mid(eq + 1).trimmed();
       if (val.startsWith(QLatin1Char('"')) && val.endsWith(QLatin1Char('"')) &&
           val.size() >= 2) {
         val = val.mid(1, val.size() - 2);
       }
-      sections[current][key] = val;
+      // Keys before any section header (and any key casing) belong to the
+      // "general" section so user configs written as bare "key = value" lines
+      // are honored exactly like [general].
+      const QString section =
+          current.isEmpty() ? QStringLiteral("general") : current;
+      sections[section][key] = val;
     }
     return true;
   }
@@ -58,6 +61,16 @@ struct IniData {
       }
     }
     return fallback;
+  }
+
+  // Layers another INI over this one per key: keys defined in `o` replace
+  // ours; anything `o` omits keeps our value. Later layers win.
+  void merge(const IniData &o) {
+    for (auto it = o.sections.cbegin(); it != o.sections.cend(); ++it) {
+      for (auto it2 = it.value().cbegin(); it2 != it.value().cend(); ++it2) {
+        sections[it.key()][it2.key()] = it2.value();
+      }
+    }
   }
 };
 
@@ -76,12 +89,27 @@ QString Config::urgencyColorKey(int urgency) {
 
 Config Config::load() {
   const QString dir =
-      QStandardPaths::writableLocation(QStandardPaths::ConfigLocation);
-  const QString path = QDir(dir).filePath(QStringLiteral("symm/config.conf"));
+      QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) +
+      QStringLiteral("/symm");
 
+  // Layered config, highest precedence first:
+  //   symm.user.ini > symm.theme.ini > symm.sys.ini > symm.ini > config.conf
+  // config.conf is the primary config file (see README). Missing layers are
+  // skipped. The theme picker writes symm.theme.ini, which layers above
+  // symm.sys.ini and symm.ini but below the user config.
   IniData ini;
-  if (!ini.parse(path)) {
-    return Config{};
+  const QString basePath = QDir(dir).filePath(QStringLiteral("config.conf"));
+  ini.parse(basePath);
+
+  // Each file is merged as its own independent layer, later files win.
+  IniData layer;
+  const char *layers[] = {"symm.ini", "symm.sys.ini", "symm.theme.ini",
+                          "symm.user.ini"};
+  for (const char *name : layers) {
+    layer.sections.clear();
+    if (layer.parse(QDir(dir).filePath(QLatin1String(name)))) {
+      ini.merge(layer);
+    }
   }
 
   Config c;
@@ -106,17 +134,10 @@ Config Config::load() {
       readInt(QStringLiteral("timeout_normal"), c.timeoutNormalMs);
   c.timeoutCriticalMs =
       readInt(QStringLiteral("timeout_critical"), c.timeoutCriticalMs);
-  c.timerDefaultMs = readInt(QStringLiteral("timer_default"), c.timerDefaultMs);
   c.historyMaxEntries =
       readInt(QStringLiteral("history_max_entries"), c.historyMaxEntries);
   c.historyRecentCount =
       readInt(QStringLiteral("history_recent_count"), c.historyRecentCount);
-  c.persistOnMinusOne =
-      ini.value(QStringLiteral("general"),
-                QStringLiteral("persist_on_minus_one")) ==
-          QStringLiteral("true") ||
-      ini.value(QStringLiteral("general"),
-                QStringLiteral("persist_on_minus_one")) == QStringLiteral("1");
 
   auto readBool = [&](const QString &key, bool fallback) {
     const QString v = ini.value(QStringLiteral("general"), key);
@@ -130,8 +151,6 @@ Config Config::load() {
   c.iconSize = readInt(QStringLiteral("icon_size"), c.iconSize);
   c.bodyTruncateChars =
       readInt(QStringLiteral("body_truncate_chars"), c.bodyTruncateChars);
-  c.blurEnabled = readBool(QStringLiteral("blur_enabled"), c.blurEnabled);
-  c.blurRadius = readInt(QStringLiteral("blur_radius"), c.blurRadius);
   c.useActiveMonitor =
       readBool(QStringLiteral("use_active_monitor"), c.useActiveMonitor);
 

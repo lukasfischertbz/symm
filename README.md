@@ -70,12 +70,6 @@ If the file is missing, defaults are used.
 > [!NOTE]
 > Configs are loaded for every notification
 
-Copy preset
-
-```sh
-mkdir -p ~/.config/symm && cp config.conf ~/.config/symm/config.conf
-```
-
 [Example](config.conf)
 
 ```ini
@@ -88,7 +82,6 @@ font_size = 10.5
 timeout_low = 10000
 timeout_normal = 5000
 timeout_critical = 15000
-timer_default = 10000
 
 [colors]
 background = #1e1e2e
@@ -103,8 +96,17 @@ accent = #6c7086
 # ...
 ```
 
-Section `urgent_error` applies to unclassified notifications; `urgent_normal`
-to normal; `urgent_critical` to critical. Colors accept any QColor string.
+### Themes
+
+Test presets
+
+```sh
+make theme
+```
+
+Hirarchy is
+
+`symm.user.ini` > `symm.theme.ini` > `symm.sys.ini` > `symm.ini`
 
 ---
 
@@ -113,10 +115,9 @@ to normal; `urgent_critical` to critical. Colors accept any QColor string.
 - [x] Timeout visualizer
 - [x] Actions
 - [x] Transparency
-- [ ] Presets
+- [x] Details
+- [x] Use active monitor
+- [x] Themes
 - [ ] History
-- [ ] Details (click a truncated notification to expand it)
 - [ ] Icons
-- [ ] App-side blur (kitty-style frosted background, any compositor)
-- [ ] Use active monitor (Hyprland; on send only)
 - [ ] Images

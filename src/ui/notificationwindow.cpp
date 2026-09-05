@@ -1,7 +1,5 @@
 #include "notificationwindow.hpp"
 
-#include <LayerShellQt/Window>
-
 #include <QApplication>
 #include <QBoxLayout>
 #include <QEnterEvent>
@@ -17,9 +15,18 @@
 #include <QScreen>
 #include <QStringList>
 #include <QTimer>
+#include <QWindow>
 
-#include "blur.hpp"
+#include <LayerShellQt/Window>
+
 #include "texture.hpp"
+
+// The card is a layer-shell overlay (like mako/dunst on Wayland): the
+// compositor anchors it to the output's top-right, it floats above every
+// workspace, and it receives clicks. The background is painted opaque on
+// board, so it reads the same on any wallpaper without depending on the
+// compositor -- the transparent rounded corners are just clipped by the
+// surface's own alpha.
 
 namespace {
 // Break a single run of text into lines that fit within maxWidth px. Wraps at
@@ -99,8 +106,8 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
                                        QScreen *targetScreen, QWidget *parent)
     : QWidget(parent,
               Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint),
-      m_id(n.id), m_remainingMs(n.timeoutMs), m_cfg(cfg),
-      m_targetScreen(targetScreen) {
+      m_id(n.id), m_appName(n.appName), m_summary(n.summary), m_cfg(cfg),
+      m_targetScreen(targetScreen), m_topOffset(cfg.top) {
   // Pick the accent style for this notification's urgency.
   const QString key = m_cfg.urgencyColorKey(n.urgency);
   if (key == QStringLiteral("low")) {
@@ -112,6 +119,9 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
   }
 
   setAttribute(Qt::WA_TranslucentBackground);
+  // A notification must never steal focus from the user's current app; clicks
+  // (dismiss / actions) still reach the layer surface without activation.
+  setAttribute(Qt::WA_ShowWithoutActivating);
   setWindowTitle(QStringLiteral("notifier"));
   setAttribute(Qt::WA_Hover);
   setMouseTracking(true);
@@ -129,169 +139,85 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
     }
   }
 
-  layoutContents(n);
-
-  auto *outer = static_cast<QVBoxLayout *>(this->layout());
-
-  // A bar tracks the auto-dismiss countdown for timed notifications. Persistent
-  // notifications stay until clicked (no dismiss timer) but still show a bar
-  // that drains over timer_default ("reverse fill" era feature restored) just
-  // as an age indicator.
-  const bool timed = !n.persist && n.timeoutMs > 0;
-  const bool persistent = n.persist || n.timeoutMs <= 0;
-
-  m_timerBar = new TimerBarWidget(this);
-  m_timerBar->setBarColor(m_style.bar);
-  if (!m_cfg.barImage.isEmpty()) {
-    m_timerBar->setBarImage(m_cfg.barImage);
-  }
-  const bool edgeBar = m_cfg.barStyle == QStringLiteral("edge");
-  const bool barAbove = m_cfg.barPosition == QStringLiteral("above");
-  m_timerBar->setEdgeStyle(edgeBar);
-  m_timerBar->setFillUp(m_cfg.barFill);
-  m_timerBar->setMoveRight(m_cfg.barMoveRight);
-  m_timerBar->setVisible(timed || persistent);
-
-  if (edgeBar) {
-    // Flush with the card's literal border, no padding -- goes in the
-    // 0-margin outer layout, not the padded content column.
-    if (barAbove) {
-      outer->insertWidget(0, m_timerBar);
-    } else {
-      outer->addWidget(m_timerBar);
-    }
-  } else {
-    // "inside" (default): padded like everything else, positioned above or
-    // below the message text within the content column.
-    if (barAbove) {
-      m_contentLayout->insertWidget(0, m_timerBar);
-    } else {
-      m_contentLayout->addWidget(m_timerBar);
-    }
-  }
-
-  outer->activate();
-  int contentH = outer->sizeHint().height();
-  setFixedSize(m_cfg.width, qMax(contentH, 70));
-
-  if (timed) {
-    m_lifeTimer = new QTimer(this);
-    m_lifeTimer->setInterval(n.timeoutMs);
-    connect(m_lifeTimer, &QTimer::timeout, this,
-            &NotificationWindow::onTimeoutFinished);
-    m_lifeTimer->start();
-    m_timerBar->start(n.timeoutMs);
-  } else if (persistent) {
-    m_timerBar->start(m_cfg.timerDefaultMs);
-  }
+  buildContent(n);
 
   if (targetScreen != nullptr) {
-    // Force native window creation now so we can pin it to a specific
-    // output before the layer-shell surface is bound in showEvent().
+    // Force native window creation before pinning it to a specific output.
     winId();
     if (QWindow *handle = windowHandle()) {
       handle->setScreen(targetScreen);
     }
   }
+  setupLayerShell();
   show();
 }
 
+// Layer-shell placement: the compositor positions the card at the output's
+// top-right (anchored top + right, offset by the current stack offset), so
+// the card stays put on workspace switches the way a panel would -- no
+// client-side move() involved (Wayland forbids it anyway).
 void NotificationWindow::setupLayerShell() {
+  // Force native window creation so the layer-shell role can be attached
+  // before the first show (matching the running daemon's original overlay).
+  winId();
   QWindow *handle = windowHandle();
-  if (!handle) {
+  if (handle == nullptr) {
     return;
   }
   LayerShellQt::Window *shell = LayerShellQt::Window::get(handle);
-  if (!shell) {
+  if (shell == nullptr) {
     return;
   }
   shell->setLayer(LayerShellQt::Window::LayerOverlay);
-  shell->setScope(QStringLiteral("notifier"));
-  using Anchor = LayerShellQt::Window::Anchor;
-  shell->setAnchors(QFlags<Anchor>(Anchor::AnchorTop) |
-                    QFlags<Anchor>(Anchor::AnchorRight));
-  shell->setMargins(QMargins(0, m_cfg.top, m_cfg.margin, 0));
-  shell->setExclusiveZone(-1); // no reserved space, floats over content
+  shell->setAnchors(
+      {LayerShellQt::Window::AnchorTop, LayerShellQt::Window::AnchorRight});
+  shell->setMargins(QMargins(0, m_topOffset, m_cfg.margin, 0));
   shell->setKeyboardInteractivity(
       LayerShellQt::Window::KeyboardInteractivityNone);
 }
 
+void NotificationWindow::applyPlacement() {
+  // Layer-shell anchors handle on-screen placement; this re-applies the stack
+  // offset when a card moves within the stack (see setTopOffset()).
+  if (QWindow *handle = windowHandle()) {
+    if (LayerShellQt::Window *shell = LayerShellQt::Window::get(handle)) {
+      shell->setMargins(QMargins(0, m_topOffset, m_cfg.margin, 0));
+    }
+  }
+}
+
 void NotificationWindow::showEvent(QShowEvent *event) {
-  setupLayerShell();
-  updateBlurPanel();
+  applyPlacement();
   QWidget::showEvent(event);
 }
 
-void NotificationWindow::updateBlurPanel() {
-  if (!m_cfg.blurEnabled || size().isEmpty() || !m_bgFrames.isEmpty()) {
-    // A texture background (if set) always wins over blur -- see
-    // paintEvent -- so skip the (relatively expensive) capture entirely.
-    m_blurPanel = QPixmap();
-    return;
-  }
-  // A real screen grab + gaussian blur is too slow to redo every paint, so
-  // it's cached here and only regenerated on show/resize/expand.
-  const QRect globalRect(mapToGlobal(QPoint(0, 0)), size());
-  m_blurPanel =
-      makeFrostedPanel(globalRect, m_cfg.blurRadius, m_cfg.background);
-  update();
-}
-
 void NotificationWindow::setTopOffset(int topMargin) {
-  const int m = m_cfg.margin;
-  if (QWindow *handle = windowHandle()) {
-    if (LayerShellQt::Window *shell = LayerShellQt::Window::get(handle)) {
-      shell->setMargins(QMargins(0, topMargin, m, 0));
-    }
+  m_topOffset = topMargin;
+  if (isVisible()) {
+    // The card moved within the stack: recompute its on-screen position.
+    applyPlacement();
   }
 }
 
 void NotificationWindow::resizeEvent(QResizeEvent *event) {
   QWidget::resizeEvent(event);
-  updateBlurPanel();
+  applyPlacement();
   emit resized();
 }
 
 void NotificationWindow::moveEvent(QMoveEvent *event) {
   QWidget::moveEvent(event);
-  // The compositor assigns the final position only after the layer-shell
-  // surface is configured, so the first showEvent capture may have used
-  // stale coordinates (see blur.hpp). Re-crop the backdrop now that the card
-  // actually sits where it will be drawn.
-  updateBlurPanel();
-  update();
 }
 
 void NotificationWindow::mousePressEvent(QMouseEvent *event) {
-  // If the body is truncated, the first click expands it ("Details") so you
-  // can actually read it. Once expanded (or if there was nothing to expand), a
-  // click dismisses as before.
-  if (m_truncated && !m_expanded) {
-    toggleExpand();
-    QWidget::mousePressEvent(event);
-    return;
-  }
+  // One click always dismisses; the full body is previewed on hover instead
+  // of expanding on click (so a click never needs a second one to go away).
   emit dismissed(m_id);
   close();
   QWidget::mousePressEvent(event);
 }
 
-void NotificationWindow::toggleExpand() {
-  if (!m_truncated || m_expanded || m_bodyLabel == nullptr) {
-    return;
-  }
-  m_expanded = true;
-  m_hoverTemporaryExpand = false;
-  QFont f(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize));
-  const int textMaxW =
-      m_cfg.width - 2 * m_cfg.paddingH -
-      (m_iconLabel != nullptr ? m_cfg.iconSize + m_cfg.gap + 4 : 0);
-  m_bodyLabel->setText(wrapPlainText(f, m_fullBody, textMaxW));
-  relayoutForBodyChange();
-}
-
 void NotificationWindow::enterEvent(QEnterEvent *event) {
-  // Resize-triggered enter/leave bursts (Wayland) must not be treated as the
   // pointer actually arriving; see m_inRelayout.
   if (m_inRelayout) {
     QWidget::enterEvent(event);
@@ -313,8 +239,7 @@ void NotificationWindow::enterEvent(QEnterEvent *event) {
   // Hovering a truncated body also previews the full text, same as a click
   // but temporary: it collapses back on leaveEvent (see
   // m_hoverTemporaryExpand).
-  if (m_truncated && !m_expanded && !m_hoverTemporaryExpand &&
-      m_bodyLabel != nullptr) {
+  if (m_truncated && !m_hoverTemporaryExpand && m_bodyLabel != nullptr) {
     m_hoverTemporaryExpand = true;
     QFont f(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize));
     const int textMaxW =
@@ -345,10 +270,9 @@ void NotificationWindow::leaveEvent(QEvent *event) {
     m_pausedRemainingMs = 0;
   }
 
-  if (m_hoverTemporaryExpand && !m_expanded && m_bodyLabel != nullptr) {
+  if (m_hoverTemporaryExpand && m_bodyLabel != nullptr) {
     m_hoverTemporaryExpand = false;
-    // A sticky (clicked) expansion must survive pointer leave; only shrink
-    // the temporary hover preview back down.
+    // Only the temporary hover preview shrinks back down on leave.
     QFont f(m_cfg.fontFamily, static_cast<int>(m_cfg.fontSize));
     const int textMaxW =
         m_cfg.width - 2 * m_cfg.paddingH -
@@ -369,9 +293,12 @@ void NotificationWindow::relayoutForBodyChange() {
   }
   outer->activate();
   const int contentH = outer->sizeHint().height();
-  setFixedSize(m_cfg.width, qMax(contentH, 70));
+  // Reuse the same per-type minimum as the constructor (timed cards keep the
+  // 70px floor; bar-free cards hug their content).
+  const bool timed = m_lifeTimer != nullptr;
+  const int minH = timed ? 70 : m_cfg.paddingV * 2 + m_cfg.gap;
+  setFixedSize(m_cfg.width, qMax(contentH, minH));
 
-  updateBlurPanel();
   emit resized();
   m_inRelayout = false;
 }
@@ -563,6 +490,130 @@ void NotificationWindow::layoutActions(const QStringList &actions) {
   }
 }
 
+void NotificationWindow::buildContent(const Notification &n) {
+  // Teardown of any previous content. Everything here is either null on the
+  // first call (fresh card) or owned by this widget, so this doubles as the
+  // update-in-place path for replaced notifications.
+  if (m_lifeTimer != nullptr) {
+    m_lifeTimer->stop();
+    m_lifeTimer->deleteLater();
+    m_lifeTimer = nullptr;
+  }
+  if (m_timerBar != nullptr) {
+    delete m_timerBar;
+    m_timerBar = nullptr;
+  }
+  delete m_iconLabel;
+  m_iconLabel = nullptr;
+  delete m_summaryLabel;
+  m_summaryLabel = nullptr;
+  delete m_bodyLabel;
+  m_bodyLabel = nullptr;
+  delete m_actionsRowWidget;
+  m_actionsRowWidget = nullptr;
+  m_actionButtons.clear();
+  m_fullBody.clear();
+  m_truncatedBody.clear();
+  m_truncated = false;
+  m_hoverTemporaryExpand = false;
+  m_pausedRemainingMs = 0;
+
+  // Delete the old layout (labels/buttons/widgets were deleted above; the
+  // layout only holds the items/sub-layouts, which are owned by it).
+  delete layout();
+  layoutContents(n);
+
+  auto *outer = static_cast<QVBoxLayout *>(this->layout());
+
+  // The bar tracks the remaining time on notifications that auto-dismiss:
+  // timed ones drain over their exact timeout. Persistent ones (persistence
+  // hint / expire 0) stay until clicked; they get no bar at all -- the bar
+  // widget is only mounted into the layout when the notification is timed,
+  // so it can neither render nor reserve dead space.
+  const bool timed = !n.persist && n.timeoutMs > 0;
+
+  m_timerBar = new TimerBarWidget(this);
+  m_timerBar->setBarColor(m_style.bar);
+  if (!m_cfg.barImage.isEmpty()) {
+    m_timerBar->setBarImage(m_cfg.barImage);
+  }
+  const bool edgeBar = m_cfg.barStyle == QStringLiteral("edge");
+  const bool barAbove = m_cfg.barPosition == QStringLiteral("above");
+  m_timerBar->setEdgeStyle(edgeBar);
+  m_timerBar->setFillUp(m_cfg.barFill);
+  m_timerBar->setMoveRight(m_cfg.barMoveRight);
+  m_timerBar->setVisible(timed);
+
+  if (timed) {
+    if (edgeBar) {
+      // Flush with the card's literal border, no padding -- goes in the
+      // 0-margin outer layout, not the padded content column.
+      if (barAbove) {
+        outer->insertWidget(0, m_timerBar);
+      } else {
+        outer->addWidget(m_timerBar);
+      }
+    } else {
+      // "inside" (default): padded like everything else, positioned above or
+      // below the message text within the content column.
+      if (barAbove) {
+        m_contentLayout->insertWidget(0, m_timerBar);
+      } else {
+        m_contentLayout->addWidget(m_timerBar);
+      }
+    }
+  }
+
+  outer->activate();
+  int contentH = outer->sizeHint().height();
+  // Minimum height: timed cards keep a comfortable floor; bar-free cards
+  // size to their content so they don't inherit bar dead space.
+  const int minH = timed ? 70 : m_cfg.paddingV * 2 + m_cfg.gap;
+  setFixedSize(m_cfg.width, qMax(contentH, minH));
+
+  if (timed) {
+    m_lifeTimer = new QTimer(this);
+    m_lifeTimer->setInterval(n.timeoutMs);
+    connect(m_lifeTimer, &QTimer::timeout, this,
+            &NotificationWindow::onTimeoutFinished);
+    m_lifeTimer->start();
+    m_timerBar->start(n.timeoutMs);
+  }
+  // Persistent notifications get no life timer and no bar: they stay on
+  // screen until the user clicks them (or an action / CloseNotification is
+  // invoked). Hover-pause is a no-op for them because m_lifeTimer is null.
+}
+
+void NotificationWindow::updateFrom(const Notification &n) {
+  m_appName = n.appName;
+  m_summary = n.summary;
+
+  // An update can change urgency, so re-pick the accent style.
+  const QString key = m_cfg.urgencyColorKey(n.urgency);
+  if (key == QStringLiteral("low")) {
+    m_style = m_cfg.low;
+  } else if (key == QStringLiteral("critical")) {
+    m_style = m_cfg.critical;
+  } else {
+    m_style = m_cfg.normal;
+  }
+
+  // Keep the existing icon if the update doesn't ship one (common with audio
+  // progress updates) -- otherwise the card would visibly drop its icon and
+  // jump on every refresh.
+  Notification effective = n;
+  if (effective.icon.isNull() && m_iconLabel != nullptr && m_cfg.iconsEnabled) {
+    effective.icon = QIcon(m_iconLabel->pixmap());
+  }
+
+  buildContent(effective);
+  // In-place replacements (same app+summary, e.g. the theme picker's preview
+  // cards) can end up with the same window size, in which case Qt skips the
+  // repaint and the previous theme's background would linger. Force one.
+  emit resized();
+  update();
+}
+
 void NotificationWindow::onActionClicked(const QString &key) {
   emit actionInvoked(m_id, key);
 }
@@ -632,20 +683,13 @@ void NotificationWindow::paintEvent(QPaintEvent *) {
     tint.setAlphaF(
         static_cast<float>(tint.alphaF() * m_cfg.backgroundOpacity * 0.5));
     p.fillPath(path, tint);
-  } else if (m_cfg.blurEnabled && !m_blurPanel.isNull()) {
-    p.setClipPath(path);
-    p.drawPixmap(0, 0, m_blurPanel);
-    p.setClipping(false);
-
-    // Tint over the frosted backdrop so text stays legible (kitty-style
-    // frost: blurred content behind a translucent color wash, not raw blur).
-    QColor tint = m_cfg.background;
-    tint.setAlphaF(
-        static_cast<float>(tint.alphaF() * m_cfg.backgroundOpacity * 0.55));
-    p.fillPath(path, tint);
   } else {
+    // Interior is kept just under fully opaque so the compositor still
+    // treats the layer surface as translucent -- a fully-opaque one gets a
+    // plain square base drawn behind it. Corners stay transparent, so the
+    // card reads as rounded on any backdrop.
     QColor fill = m_cfg.background;
-    fill.setAlphaF(static_cast<float>(fill.alphaF() * m_cfg.backgroundOpacity));
+    fill.setAlpha(qBound(235, fill.alpha(), 250));
     p.fillPath(path, fill);
   }
 

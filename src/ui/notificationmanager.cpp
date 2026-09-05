@@ -15,10 +15,11 @@
 #include <QStandardPaths>
 #include <QTimer>
 
-#include "../hyprland.hpp"
 #include "notificationhistorywindow.hpp"
 #include "notificationwindow.hpp"
 #include "texture.hpp"
+
+#include "../hyprland.hpp"
 
 namespace {
 // Resolves the QScreen matching the currently focused Hyprland output, or
@@ -54,6 +55,14 @@ NotificationManager::NotificationManager(const Config &cfg, QObject *parent)
 void NotificationManager::show(const Notification &n) {
   m_cfg = Config::load();
 
+  // In-place replacement for clients that DON'T send replaces_id (volume
+  // helpers, progress apps): they issue a fresh id per update, which would
+  // otherwise stack a new card on every change. If a live card from the same
+  // app already shows the same summary, refresh that card instead.
+  if (replaceMatchingCard(n)) {
+    return;
+  }
+
   HistoryEntry entry;
   entry.id = n.id;
   entry.appName = n.appName;
@@ -75,6 +84,34 @@ void NotificationManager::show(const Notification &n) {
   }
 
   displayNow(n);
+}
+
+bool NotificationManager::replaceMatchingCard(const Notification &n) {
+  for (QPointer<NotificationWindow> &p : m_windows) {
+    if (p == nullptr || p->id() == n.id) {
+      continue;
+    }
+    if (p->appName() == n.appName && p->summary() == n.summary) {
+      // A new notification reloads the config (see show()): hand the freshest
+      // config to the existing card so an in-place merge paints with the
+      // current theme instead of its construction-time colors.
+      p->setConfig(m_cfg);
+      p->updateFrom(n);
+      // One history entry per card: refresh instead of duplicating.
+      for (HistoryEntry &e : m_history) {
+        if (e.id == n.id) {
+          e.summary = n.summary;
+          e.body = n.body;
+          e.urgency = n.urgency;
+          e.timestamp = QDateTime::currentDateTime();
+          saveHistory();
+          break;
+        }
+      }
+      return true;
+    }
+  }
+  return false;
 }
 
 void NotificationManager::displayNow(const Notification &n) {
@@ -164,6 +201,38 @@ void NotificationManager::remove(uint id) {
   promoteFromQueue();
 }
 
+void NotificationManager::update(const Notification &n) {
+  for (QPointer<NotificationWindow> &p : m_windows) {
+    if (p != nullptr && p->id() == n.id) {
+      p->updateFrom(n);
+      // Keep one history entry per notification id: refresh it in place
+      // instead of appending a new row per update.
+      for (HistoryEntry &e : m_history) {
+        if (e.id == n.id) {
+          e.summary = n.summary;
+          e.body = n.body;
+          e.urgency = n.urgency;
+          e.timestamp = QDateTime::currentDateTime();
+          saveHistory();
+          break;
+        }
+      }
+      return;
+    }
+  }
+  // Not on screen yet but queued behind the visible cap: replace the queued
+  // copy so it shows the latest payload when it's promoted.
+  for (Notification &q : m_pending) {
+    if (q.id == n.id) {
+      q = n;
+      return;
+    }
+  }
+  // No live card: the old one was already closed/dismissed. Per the spec a
+  // replace on an id that no longer exists behaves as a fresh notification.
+  show(n);
+}
+
 void NotificationManager::showHistoryWindow() {
   if (m_historyWindow == nullptr) {
     m_historyWindow = new NotificationHistoryWindow(m_cfg, nullptr);
@@ -191,10 +260,10 @@ void NotificationManager::reflow() {
     }
     const int top = topByScreen[screen];
     p->setTopOffset(top);
-    // sizeHint() reflects the card's *current* layout, so an expanded
-    // ("Details") card correctly pushes the next one on the same monitor
-    // further down.
-    topByScreen[screen] = top + p->sizeHint().height() + m_cfg.cardSpacing;
+    // Use the window's real (fixed) height, not sizeHint(): sizeHint() is the
+    // layout's preferred height, which for timed cards (70px floor) is less
+    // than the actual window height -- stacking by it overlaps the next card.
+    topByScreen[screen] = top + p->height() + m_cfg.cardSpacing;
   }
 }
 
