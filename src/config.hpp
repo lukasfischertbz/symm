@@ -90,7 +90,7 @@ struct Config {
 
   static QString urgencyColorKey(int urgency);
 
-  // Loads ~/.config/symm/config.conf (or $XDG_CONFIG_HOME). Falls back to
+  // Loads ~/.config/symm/symm.ini (or $XDG_CONFIG_HOME). Falls back to
   // defaults.
   static Config load();
 };

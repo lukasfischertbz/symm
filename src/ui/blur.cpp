@@ -117,36 +117,58 @@ bool looksLikeRealCapture(const QImage &img) {
 }
 
 // Fabricated frosted-glass look used whenever we can't legitimately read the
-// real desktop pixels behind the notification (the common Wayland case):
-// layered translucency in the theme color plus faint noise, so cards still
-// look like intentional frosted glass instead of flat black.
+// real desktop pixels behind the notification (the common Wayland case).
+//
+// Instead of a flat gradient + speckle (which reads as a solid panel, not
+// frosted glass), generate a noisy backdrop and gaussian-blur it -- the same
+// blur primitive used for real captures -- so the panel actually looks like
+// blurred content behind translucent glass, in the theme color rather than
+// flat black. `tint` is used only to warm/cool the noise, not at full
+// opacity, so even a navy tint won't wash the card blue.
 QPixmap synthesizedFrost(const QSize &size, const QColor &tint) {
-  QPixmap pm(size);
-  pm.fill(Qt::transparent);
-  QPainter p(&pm);
-  p.setRenderHint(QPainter::Antialiasing);
-
-  QLinearGradient grad(0, 0, 0, size.height());
-  QColor top = tint.lighter(120);
-  QColor bottom = tint.darker(115);
-  top.setAlpha(255);
-  bottom.setAlpha(255);
-  grad.setColorAt(0.0, top);
-  grad.setColorAt(1.0, bottom);
-  p.fillRect(pm.rect(), grad);
-
-  // Faint speckle so it reads as "glass" rather than a flat gradient.
-  p.setPen(Qt::NoPen);
-  QRandomGenerator *rng = QRandomGenerator::global();
-  const int speckleCount = (size.width() * size.height()) / 900;
-  for (int i = 0; i < speckleCount; ++i) {
-    const int x = rng->bounded(size.width());
-    const int y = rng->bounded(size.height());
-    const int a = rng->bounded(8, 20);
-    p.setBrush(QColor(255, 255, 255, a));
-    p.drawEllipse(QPointF(x, y), 1.0, 1.0);
+  QPixmap base(size);
+  base.fill(Qt::transparent);
+  {
+    QPainter p(&base);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(Qt::NoPen);
+    // Per-pixel brightness noise so the gaussian below has real texture to
+    // blur. Spread the luminance around the tint's own gray level: bright and
+    // dark splotches, never a flat wash.
+    QRandomGenerator *rng = QRandomGenerator::global();
+    const int step = 3;
+    for (int y = 0; y < size.height(); y += step) {
+      for (int x = 0; x < size.width(); x += step) {
+        QColor c = tint;
+        const int jitter = rng->bounded(-60, 61);
+        c = c.lighter(qBound(50, 100 + jitter / 3, 190));
+        const int a = rng->bounded(40, 130);
+        p.setBrush(QColor(c.red(), c.green(), c.blue(), a));
+        const int w = rng->bounded(3, 12);
+        p.drawEllipse(QPointF(x + step / 2.0, y + step / 2.0), w, w);
+      }
+    }
   }
-  return pm;
+
+  // Real gaussian blur of the noise so it reads as frosted glass (kitty-style)
+  // instead of noise specks, then composite over an opaque neutral base so
+  // nothing behind shows through.
+  const int radius = qBound(6, (size.width() + size.height()) / 40, 40);
+  QPixmap blurred = gaussianBlur(base, radius);
+
+  QPixmap out(size);
+  out.fill(Qt::transparent);
+  {
+    QPainter p(&out);
+    p.setRenderHint(QPainter::Antialiasing);
+    // Deep, near-neutral underlay so the frosted surface has body and the
+    // panel never reads as a bright/blue rectangle.
+    QColor bed = tint.lighter(112);
+    bed.setAlpha(255);
+    p.fillRect(out.rect(), bed);
+    p.drawPixmap(0, 0, blurred);
+  }
+  return out;
 }
 
 } // namespace

@@ -88,17 +88,11 @@ Config Config::load() {
       QStringLiteral("/symm");
 
   // Layered config, highest precedence first:
-  //   symm.user.ini > symm.theme.ini > symm.sys.ini > symm.ini/config.conf
-  // Missing layers are skipped. The legacy config.conf doubles as the base
-  // layer until it is renamed to symm.ini.
+  //   symm.user.ini > symm.theme.ini > symm.sys.ini > symm.ini
+  // Missing layers are skipped.
   IniData ini;
   const QString basePath = QDir(dir).filePath(QStringLiteral("symm.ini"));
-  // Base layer: symm.ini, else legacy config.conf. Never bail out -- with no
-  // base file the layers above still apply (over Config defaults), otherwise a
-  // missing base would silently swallow every theme/user color.
-  if (!ini.parse(basePath)) {
-    ini.parse(QDir(dir).filePath(QStringLiteral("config.conf")));
-  }
+  ini.parse(basePath);
 
   IniData layer;
   if (layer.parse(QDir(dir).filePath(QStringLiteral("symm.sys.ini")))) {

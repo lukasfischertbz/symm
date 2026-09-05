@@ -109,7 +109,7 @@ make theme
 
 Hirarchy is
 
-`symm.user.ini` > `symm.theme.ini` > `ymm.sys.ini` > `symm.ini`
+`symm.user.ini` > `symm.theme.ini` > `symm.sys.ini` > `symm.ini`
 
 ---
 
@@ -120,7 +120,7 @@ Hirarchy is
 - [x] Transparency
 - [x] Details (click a truncated notification to expand it)
 - [x] Use active monitor (Hyprland; on send only)
-- [ ] Themes
+- [x] Themes
 - [ ] History
 - [ ] Icons
 - [ ] App-side blur (kitty-style frosted background, any compositor)
