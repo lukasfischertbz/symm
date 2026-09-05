@@ -38,6 +38,13 @@ struct Config {
   bool blurEnabled = true; // kitty-style frosted background behind cards
   int blurRadius = 24;     // gaussian blur radius in px
 
+  // When true and running under Hyprland, use the compositor's own live
+  // region blur for the overlay (layerrule blur,notifier) and keep the card
+  // semi-transparent -- exactly the mechanism kitty uses. Defaults to false:
+  // the app-side screenshot blur renders a guaranteed frosted backdrop on any
+  // compositor without depending on Hyprland's blur being enabled.
+  bool compositorBlur = false;
+
   bool useActiveMonitor = true; // (Hyprland only) place new notifications on
                                 // the currently focused monitor at send time
 

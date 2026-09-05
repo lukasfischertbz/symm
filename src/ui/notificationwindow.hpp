@@ -35,6 +35,11 @@ public:
   void setTopOffset(int topMargin);
 
   uint id() const { return m_id; }
+  QString appName() const { return m_appName; }
+  QString summary() const { return m_summary; }
+  // Re-apply a newly loaded config (e.g. a theme change) so in-place updates
+  // paint with the current colors instead of the construction-time snapshot.
+  void setConfig(const Config &cfg) { m_cfg = cfg; }
   // The output this card was pinned to at send time (see
   // NotificationManager::show / "use active monitor"). Null means "whatever
   // the default/primary screen is" -- reflow() groups by this so two
@@ -82,6 +87,8 @@ private:
   void relayoutForBodyChange();
 
   uint m_id;
+  QString m_appName;
+  QString m_summary;
   Config m_cfg;
   QScreen *m_targetScreen = nullptr;
   UrgencyStyle m_style;

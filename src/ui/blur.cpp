@@ -183,6 +183,32 @@ void initBlurSource() {
   }
 }
 
+bool runningOnHyprland() {
+  return !qEnvironmentVariableIsEmpty("HYPRLAND_INSTANCE_SIGNATURE");
+}
+
+bool enableCompositorBlur() {
+  if (!runningOnHyprland()) {
+    return false;
+  }
+  // layerrule is per keyword value: `keyword layerrule RULE`. The rules match
+  // surfaces whose layer-shell namespace is "notifier" (setScope in the card
+  // windows). `blur` asks Hyprland to blur the live framebuffer behind the
+  // surface each frame (kitty's exact mechanism); `ignorealpha` keeps fully
+  // transparent pixels -- the card's rounded corners -- out of the blur so it
+  // follows the rounded-rect shape instead of a hard rectangle.
+  const auto runRule = [](const QString &rule) {
+    QProcess proc;
+    proc.start(QStringLiteral("hyprctl"),
+               {QStringLiteral("keyword"), QStringLiteral("layerrule"), rule});
+    return proc.waitForFinished(1000) &&
+           proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0;
+  };
+  const bool blur = runRule(QStringLiteral("blur,notifier"));
+  runRule(QStringLiteral("ignorealpha,notifier"));
+  return blur;
+}
+
 QPixmap makeFrostedPanel(const QRect &globalRect, int blurRadius,
                          const QColor &tint) {
   if (globalRect.isEmpty()) {

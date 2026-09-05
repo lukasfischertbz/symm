@@ -42,6 +42,14 @@ signals:
   void actionInvoked(uint id, const QString &key);
 
 private:
+  // Lenient update-in-place: a live card with the same appName AND summary
+  // exists (a client that never sends replaces_id) -- refresh it instead of
+  // stacking a new card. Returns true when a card was updated.
+  bool replaceMatchingCard(const Notification &n);
+  // Re-grabs the blur backdrop whenever the desktop is clean (no card on
+  // screen) so the next card frosted-glass reflects live content. No-op when
+  // blur is off or compositor blur is in use.
+  void refreshBackdropIfIdle();
   void trimHistory();
   void loadHistory();
   void saveHistory() const;

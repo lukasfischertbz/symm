@@ -99,7 +99,8 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
                                        QScreen *targetScreen, QWidget *parent)
     : QWidget(parent,
               Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint),
-      m_id(n.id), m_cfg(cfg), m_targetScreen(targetScreen) {
+      m_id(n.id), m_appName(n.appName), m_summary(n.summary), m_cfg(cfg),
+      m_targetScreen(targetScreen) {
   // Pick the accent style for this notification's urgency.
   const QString key = m_cfg.urgencyColorKey(n.urgency);
   if (key == QStringLiteral("low")) {
@@ -169,7 +170,12 @@ void NotificationWindow::showEvent(QShowEvent *event) {
 }
 
 void NotificationWindow::updateBlurPanel() {
-  if (!m_cfg.blurEnabled || size().isEmpty() || !m_bgFrames.isEmpty()) {
+  // Compositor-side (Hyprland layerrule) blur paints no backdrop pixmap: the
+  // card just stays translucent and the compositor blurs the live desktop
+  // behind it each frame. Skip the (expensive) screenshot pipeline entirely.
+  const bool compositorBlur = m_cfg.compositorBlur && runningOnHyprland();
+  if (!m_cfg.blurEnabled || compositorBlur || size().isEmpty() ||
+      !m_bgFrames.isEmpty()) {
     // A texture background (if set) always wins over blur -- see
     // paintEvent -- so skip the (relatively expensive) capture entirely.
     m_blurPanel = QPixmap();
@@ -590,6 +596,9 @@ void NotificationWindow::buildContent(const Notification &n) {
 }
 
 void NotificationWindow::updateFrom(const Notification &n) {
+  m_appName = n.appName;
+  m_summary = n.summary;
+
   // An update can change urgency, so re-pick the accent style.
   const QString key = m_cfg.urgencyColorKey(n.urgency);
   if (key == QStringLiteral("low")) {
@@ -682,6 +691,19 @@ void NotificationWindow::paintEvent(QPaintEvent *) {
     tint.setAlphaF(
         static_cast<float>(tint.alphaF() * m_cfg.backgroundOpacity * 0.5));
     p.fillPath(path, tint);
+  } else if (m_cfg.blurEnabled && runningOnHyprland() && m_cfg.compositorBlur) {
+    // Hyprland compositor blur (the kitty mechanism): Hyprland blurs the live
+    // desktop behind the whole layer surface; the card only lays a translucent
+    // tint on top so the frosted content shows through. TEXT IS UNTOUCHED --
+    // the child widgets draw as solid opaque pixels on the surface and are
+    // never part of the blur.
+    p.setClipPath(path);
+    QColor tint = m_cfg.background;
+    const float base = static_cast<float>(tint.alphaF());
+    const float a = base * static_cast<float>(m_cfg.backgroundOpacity) * 0.40f;
+    tint.setAlphaF(qBound(0.0f, a, 1.0f));
+    p.fillPath(path, tint);
+    p.setClipping(false);
   } else if (m_cfg.blurEnabled && !m_blurPanel.isNull()) {
     p.setClipPath(path);
     p.drawPixmap(0, 0, m_blurPanel);

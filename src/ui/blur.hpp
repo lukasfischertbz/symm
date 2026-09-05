@@ -20,3 +20,14 @@
 void initBlurSource();
 QPixmap makeFrostedPanel(const QRect &globalRect, int blurRadius,
                          const QColor &tint);
+
+// True when the daemon runs inside a Hyprland session (identified by
+// HYPRLAND_INSTANCE_SIGNATURE). Used to pick compositor blur over the
+// app-side screenshot pipeline -- the same mechanism kitty relies on.
+bool runningOnHyprland();
+
+// Asks Hyprland to blurl the desktop behind our overlay namespace (the
+// layer-shell scope "notifier" set on every card window) each frame, plus
+// `ignorealpha` so transparent rounded corners stay unblurred. Returns true
+// if the blur rule was applied. Harmless no-op outside Hyprland.
+bool enableCompositorBlur();

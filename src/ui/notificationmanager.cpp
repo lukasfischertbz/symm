@@ -15,10 +15,12 @@
 #include <QStandardPaths>
 #include <QTimer>
 
-#include "../hyprland.hpp"
 #include "notificationhistorywindow.hpp"
 #include "notificationwindow.hpp"
 #include "texture.hpp"
+
+#include "../hyprland.hpp"
+#include "blur.hpp"
 
 namespace {
 // Resolves the QScreen matching the currently focused Hyprland output, or
@@ -54,6 +56,14 @@ NotificationManager::NotificationManager(const Config &cfg, QObject *parent)
 void NotificationManager::show(const Notification &n) {
   m_cfg = Config::load();
 
+  // In-place replacement for clients that DON'T send replaces_id (volume
+  // helpers, progress apps): they issue a fresh id per update, which would
+  // otherwise stack a new card on every change. If a live card from the same
+  // app already shows the same summary, refresh that card instead.
+  if (replaceMatchingCard(n)) {
+    return;
+  }
+
   HistoryEntry entry;
   entry.id = n.id;
   entry.appName = n.appName;
@@ -65,6 +75,11 @@ void NotificationManager::show(const Notification &n) {
   trimHistory();
   saveHistory();
 
+  // A fresh card is about to hit an empty desktop: re-grab the backdrop now
+  // (nothing of ours is on screen, so no self-capture) so the frosted glass
+  // reflects what's actually there instead of daemon-startup content.
+  refreshBackdropIfIdle();
+
   // If we're already at the visible cap, queue it instead of creating a
   // window: this is also what makes the timeout "only start once visible"
   // -- the NotificationWindow (and its auto-dismiss QTimer) simply doesn't
@@ -75,6 +90,49 @@ void NotificationManager::show(const Notification &n) {
   }
 
   displayNow(n);
+}
+
+bool NotificationManager::replaceMatchingCard(const Notification &n) {
+  for (QPointer<NotificationWindow> &p : m_windows) {
+    if (p == nullptr || p->id() == n.id) {
+      continue;
+    }
+    if (p->appName() == n.appName && p->summary() == n.summary) {
+      // A new notification reloads the config (see show()): hand the freshest
+      // config to the existing card so an in-place merge paints with the
+      // current theme instead of its construction-time colors.
+      p->setConfig(m_cfg);
+      p->updateFrom(n);
+      // One history entry per card: refresh instead of duplicating.
+      for (HistoryEntry &e : m_history) {
+        if (e.id == n.id) {
+          e.summary = n.summary;
+          e.body = n.body;
+          e.urgency = n.urgency;
+          e.timestamp = QDateTime::currentDateTime();
+          saveHistory();
+          break;
+        }
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+void NotificationManager::refreshBackdropIfIdle() {
+  const bool compositor = m_cfg.compositorBlur && runningOnHyprland();
+  if (!m_cfg.blurEnabled || compositor) {
+    return;
+  }
+  for (const QPointer<NotificationWindow> &p : m_windows) {
+    if (p != nullptr) {
+      return; // a card is on screen; the cached frame stays valid
+    }
+  }
+  // No overlay of ours is on the desktop: a re-grab can't capture our own
+  // cards, so the frosted backdrop for the next card is fresh (live).
+  initBlurSource();
 }
 
 void NotificationManager::displayNow(const Notification &n) {
@@ -133,6 +191,7 @@ void NotificationManager::promoteFromQueue() {
   if (m_cfg.maxVisible > 0 && m_windows.size() >= m_cfg.maxVisible) {
     return;
   }
+  refreshBackdropIfIdle();
   const Notification next = m_pending.takeFirst();
   displayNow(next);
 }

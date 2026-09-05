@@ -61,14 +61,23 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  // Grab a "clean" full-screen backdrop once, before the daemon starts
-  // processing notifications. Cards crop their own region out of this later;
-  // grabbing per-card would capture the card itself (self-blur) or run at
-  // stale pre-position coordinates (see blur.hpp). Done after the D-Bus name
-  // is taken and the object registered so a slow/failing capture (grim absent,
-  // early boot before the compositor painted) never blocks service bring-up.
+  // Blur strategy:
+  //  - Hyprland + compositor_blur: ask Hyprland to blur the live desktop
+  //    behind the "notifier" overlay namespace (layerrule), exactly like
+  //    kitty; cards stay translucent and no screenshot is needed.
+  //  - Otherwise: grab a "clean" full-screen backdrop once, before the daemon
+  //    starts processing notifications. Cards crop their own region out of
+  //    this later; grabbing per-card would capture the card itself
+  //    (self-blur) or run at stale pre-position coordinates (see blur.hpp).
+  //    Done after the D-Bus name is taken and the object registered so a
+  //    slow/failing capture (grim absent, early boot before the compositor
+  //    painted) never blocks service bring-up.
   if (cfg.blurEnabled) {
-    initBlurSource();
+    if (cfg.compositorBlur && runningOnHyprland()) {
+      enableCompositorBlur();
+    } else {
+      initBlurSource();
+    }
   }
 
   NotificationManager manager(cfg, &app);
