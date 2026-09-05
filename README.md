@@ -11,7 +11,7 @@ A qt wlr-layer-shell notification daemon (DBus org.freedesktop.Notifications).
 
 ```sh
 # cd /tmp
-git clone git@github.com:lukasfischertbz/symm.git
+git clone https://github.com/lukasfischertbz/symm.git
 cd symm
 make install clear run
 ```
