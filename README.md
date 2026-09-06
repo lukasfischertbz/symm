@@ -70,7 +70,8 @@ If the file is missing, defaults are used.
 > [!NOTE]
 > Configs are loaded for every notification
 
-[Example](themes/minimal.conf)
+[Example Theme](themes/minimal.conf)
+[Example User config](symm.user.ini)
 
 ### Themes
 
@@ -94,6 +95,6 @@ Hirarchy is
 - [x] Details
 - [x] Use active monitor
 - [x] Themes
+- [x] Icons
 - [ ] History
-- [ ] Icons
 - [ ] Images
