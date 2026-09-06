@@ -42,9 +42,10 @@ QImage imageFromHint(const QVariant &hint) {
     return {};
   }
 
-  // Validate that the pixel buffer is large enough for the declared dimensions.
-  // An undersized buffer with large width/height/rowstride would cause QImage
-  // to read past the end of the QByteArray (heap-buffer over-read -> crash).
+  // A malformed client can declare large width/height/rowstride while sending
+  // a tiny pixel buffer -- constructing the QImage over that buffer would
+  // read past the end of the QByteArray (heap-buffer over-read, segfault).
+  // Reject undersized payloads instead.
   const qint64 expectedBytes = static_cast<qint64>(height) * rowstride;
   if (rowstride <= 0 || expectedBytes > pixels.size()) {
     return {};

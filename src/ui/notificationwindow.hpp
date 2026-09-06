@@ -38,6 +38,9 @@ public:
   uint id() const { return m_id; }
   QString appName() const { return m_appName; }
   QString summary() const { return m_summary; }
+  int urgency() const { return m_urgency; }
+  bool persist() const { return m_persist; }
+  bool hasActions() const { return m_hasActions; }
   // Re-apply a newly loaded config (e.g. a theme change) so in-place updates
   // paint with the current colors instead of the construction-time snapshot.
   void setConfig(const Config &cfg) { m_cfg = cfg; }
@@ -93,6 +96,9 @@ private:
   uint m_id;
   QString m_appName;
   QString m_summary;
+  int m_urgency = 1;
+  bool m_persist = false;
+  bool m_hasActions = false;
   Config m_cfg;
   QScreen *m_targetScreen = nullptr;
   UrgencyStyle m_style;

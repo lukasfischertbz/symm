@@ -106,7 +106,8 @@ NotificationWindow::NotificationWindow(const Notification &n, const Config &cfg,
                                        QScreen *targetScreen, QWidget *parent)
     : QWidget(parent,
               Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint),
-      m_id(n.id), m_appName(n.appName), m_summary(n.summary), m_cfg(cfg),
+      m_id(n.id), m_appName(n.appName), m_summary(n.summary),
+      m_urgency(n.urgency), m_persist(n.persist), m_cfg(cfg),
       m_targetScreen(targetScreen), m_topOffset(cfg.top) {
   // Pick the accent style for this notification's urgency.
   const QString key = m_cfg.urgencyColorKey(n.urgency);
@@ -182,6 +183,12 @@ void NotificationWindow::applyPlacement() {
   if (QWindow *handle = windowHandle()) {
     if (LayerShellQt::Window *shell = LayerShellQt::Window::get(handle)) {
       shell->setMargins(QMargins(0, m_topOffset, m_cfg.margin, 0));
+      // Layer margins are double-buffered and only land when the surface is
+      // committed again. A fully-painted static card produces no further frame
+      // on its own, so without this the compositor never repositions it -- the
+      // stack would freeze in place (cards overlap when new ones stack above,
+      // and surviving cards never climb after a dismiss).
+      update();
     }
   }
 }
@@ -491,6 +498,7 @@ void NotificationWindow::layoutActions(const QStringList &actions) {
 }
 
 void NotificationWindow::buildContent(const Notification &n) {
+  m_hasActions = n.actions.size() >= 2;
   // Teardown of any previous content. Everything here is either null on the
   // first call (fresh card) or owned by this widget, so this doubles as the
   // update-in-place path for replaced notifications.
@@ -517,8 +525,7 @@ void NotificationWindow::buildContent(const Notification &n) {
   m_pausedRemainingMs = 0;
 
   // Delete the old layout (labels/buttons/widgets were deleted above; the
-  // layout only holds the items/sub-layouts, which are owned by it). Must be
-  // synchronous: layoutContents() installs a fresh layout in its place.
+  // layout only holds the items/sub-layouts, which are owned by it).
   delete layout();
   layoutContents(n);
 
@@ -586,6 +593,8 @@ void NotificationWindow::buildContent(const Notification &n) {
 void NotificationWindow::updateFrom(const Notification &n) {
   m_appName = n.appName;
   m_summary = n.summary;
+  m_urgency = n.urgency;
+  m_persist = n.persist;
 
   // An update can change urgency, so re-pick the accent style.
   const QString key = m_cfg.urgencyColorKey(n.urgency);

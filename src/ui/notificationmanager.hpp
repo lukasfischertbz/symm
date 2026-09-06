@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDateTime>
+#include <QHash>
 #include <QList>
 #include <QObject>
 #include <QPointer>
@@ -63,4 +64,7 @@ private:
   QList<Notification> m_pending;
   QList<HistoryEntry> m_history;
   QPointer<NotificationHistoryWindow> m_historyWindow;
+  // Last arrival time (ms since epoch) per app name, used to collapse rapid
+  // same-app repeats (volume/brightness OSDs that send a fresh id per tick).
+  QHash<QString, qint64> m_lastSeenByApp;
 };
