@@ -43,10 +43,6 @@ signals:
   void actionInvoked(uint id, const QString &key);
 
 private:
-  // Lenient update-in-place: a live card with the same appName AND summary
-  // exists (a client that never sends replaces_id) -- refresh it instead of
-  // stacking a new card. Returns true when a card was updated.
-  bool replaceMatchingCard(const Notification &n);
   void trimHistory();
   void loadHistory();
   void saveHistory() const;
@@ -64,7 +60,4 @@ private:
   QList<Notification> m_pending;
   QList<HistoryEntry> m_history;
   QPointer<NotificationHistoryWindow> m_historyWindow;
-  // Last arrival time (ms since epoch) per app name, used to collapse rapid
-  // same-app repeats (volume/brightness OSDs that send a fresh id per tick).
-  QHash<QString, qint64> m_lastSeenByApp;
 };

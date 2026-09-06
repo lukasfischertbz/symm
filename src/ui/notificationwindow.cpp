@@ -299,7 +299,9 @@ void NotificationWindow::relayoutForBodyChange() {
     return;
   }
   outer->activate();
-  const int contentH = outer->sizeHint().height();
+  // See buildContent(): sizeHint() underestimates wrapped body height, so the
+  // card would come out squished; measure at the actual card width instead.
+  const int contentH = outer->heightForWidth(m_cfg.width);
   // Reuse the same per-type minimum as the constructor (timed cards keep the
   // 70px floor; bar-free cards hug their content).
   const bool timed = m_lifeTimer != nullptr;
@@ -578,7 +580,11 @@ void NotificationWindow::buildContent(const Notification &n) {
   }
 
   outer->activate();
-  int contentH = outer->sizeHint().height();
+  // Measure the layout at the card's real width, not the layout's unconstrained
+  // preferred height. heightForWidth() honors the wrapped-line height of the
+  // word-wrapping labels; sizeHint() measures them at their natural width and
+  // undershoots for long bodies, clipping the bottom of the card.
+  const int contentH = outer->heightForWidth(m_cfg.width);
   // Minimum height: timed cards keep a comfortable floor; bar-free cards
   // size to their content so they don't inherit bar dead space.
   const int minH = timed ? 70 : m_cfg.paddingV * 2 + m_cfg.gap;
