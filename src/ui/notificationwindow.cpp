@@ -539,7 +539,14 @@ void NotificationWindow::buildContent(const Notification &n) {
   const bool timed = !n.persist && n.timeoutMs > 0;
 
   m_timerBar = new TimerBarWidget(this);
-  m_timerBar->setBarColor(m_style.bar);
+  m_timerBar->setTrackColor(m_cfg.barBackground);
+  // The critical timer bar is always red no matter which theme loads
+  // (e.g. flour's [urgent_critical].bar is white) -- urgency must be
+  // read at a glance.
+  m_timerBar->setBarColor(m_cfg.urgencyColorKey(n.urgency) ==
+                                  QStringLiteral("critical")
+                              ? QColor(0xfb, 0x49, 0x34)
+                              : m_style.bar);
   if (!m_cfg.barImage.isEmpty()) {
     m_timerBar->setBarImage(m_cfg.barImage);
   }

@@ -70,31 +70,7 @@ If the file is missing, defaults are used.
 > [!NOTE]
 > Configs are loaded for every notification
 
-[Example](config.conf)
-
-```ini
-[general]
-width = 360
-margin = 20
-radius = 12
-font_family = Cantarell
-font_size = 10.5
-timeout_low = 10000
-timeout_normal = 5000
-timeout_critical = 15000
-
-[colors]
-background = #1e1e2e
-foreground = #cdd6f4
-dim_foreground = #a6adc8
-
-[urgent_low]
-bar = #6c7086
-accent = #6c7086
-
-[urgent_normal]
-# ...
-```
+[Example](themes/minimal.conf)
 
 ### Themes
 

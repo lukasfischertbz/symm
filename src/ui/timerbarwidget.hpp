@@ -28,6 +28,12 @@ public:
     update();
   }
 
+  QColor trackColor() const { return m_trackColor; }
+  void setTrackColor(const QColor &c) {
+    m_trackColor = c;
+    update();
+  }
+
   // Optional texture for the bar's filled portion, drawn instead of
   // barColor. Animated sources cycle frames using the bar's own repaint
   // timer while a countdown is active.

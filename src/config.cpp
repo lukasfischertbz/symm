@@ -209,27 +209,42 @@ Config Config::load() {
   if (!bg.isEmpty()) {
     c.background = QColor(bg);
   }
-  const QString fg =
-      ini.value(QStringLiteral("colors"), QStringLiteral("foreground"));
-  if (!fg.isEmpty()) {
-    c.textColor = QColor(fg);
+  QString fgText =
+      ini.value(QStringLiteral("colors"), QStringLiteral("title_text"));
+  if (fgText.isEmpty()) {
+    fgText = ini.value(QStringLiteral("colors"), QStringLiteral("foreground"));
   }
-  const QString dim =
-      ini.value(QStringLiteral("colors"), QStringLiteral("dim_foreground"));
-  if (!dim.isEmpty()) {
-    c.dimTextColor = QColor(dim);
+  if (!fgText.isEmpty()) {
+    c.textColor = QColor(fgText);
+  }
+  QString dimText =
+      ini.value(QStringLiteral("colors"), QStringLiteral("body_text"));
+  if (dimText.isEmpty()) {
+    dimText =
+        ini.value(QStringLiteral("colors"), QStringLiteral("dim_foreground"));
+  }
+  if (!dimText.isEmpty()) {
+    c.dimTextColor = QColor(dimText);
+  }
+  const QString barBg =
+      ini.value(QStringLiteral("colors"), QStringLiteral("bar_background"));
+  if (!barBg.isEmpty()) {
+    c.barBackground = QColor(barBg);
   }
 
   auto readStyle = [&ini](const QString &section,
                           const UrgencyStyle &fallback) {
     UrgencyStyle out = fallback;
     const QString bar = ini.value(section, QStringLiteral("bar"));
-    const QString accent = ini.value(section, QStringLiteral("accent"));
+    QString outline = ini.value(section, QStringLiteral("outline"));
+    if (outline.isEmpty()) {
+      outline = ini.value(section, QStringLiteral("accent"));
+    }
     if (!bar.isEmpty()) {
       out.bar = QColor(bar);
     }
-    if (!accent.isEmpty()) {
-      out.accent = QColor(accent);
+    if (!outline.isEmpty()) {
+      out.accent = QColor(outline);
     }
     return out;
   };
