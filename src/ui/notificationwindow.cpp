@@ -499,10 +499,8 @@ void NotificationWindow::buildContent(const Notification &n) {
     m_lifeTimer->deleteLater();
     m_lifeTimer = nullptr;
   }
-  if (m_timerBar != nullptr) {
-    delete m_timerBar;
-    m_timerBar = nullptr;
-  }
+  delete m_timerBar;
+  m_timerBar = nullptr;
   delete m_iconLabel;
   m_iconLabel = nullptr;
   delete m_summaryLabel;
@@ -519,7 +517,8 @@ void NotificationWindow::buildContent(const Notification &n) {
   m_pausedRemainingMs = 0;
 
   // Delete the old layout (labels/buttons/widgets were deleted above; the
-  // layout only holds the items/sub-layouts, which are owned by it).
+  // layout only holds the items/sub-layouts, which are owned by it). Must be
+  // synchronous: layoutContents() installs a fresh layout in its place.
   delete layout();
   layoutContents(n);
 

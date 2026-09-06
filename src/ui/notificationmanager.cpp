@@ -58,7 +58,7 @@ void NotificationManager::show(const Notification &n) {
   // In-place replacement for clients that DON'T send replaces_id (volume
   // helpers, progress apps): they issue a fresh id per update, which would
   // otherwise stack a new card on every change. If a live card from the same
-  // app already shows the same summary, refresh that card instead.
+  // app is on screen, refresh that card instead.
   if (replaceMatchingCard(n)) {
     return;
   }
@@ -74,12 +74,25 @@ void NotificationManager::show(const Notification &n) {
   trimHistory();
   saveHistory();
 
+  // A notification with no text and no decodable icon has nothing to render;
+  // stacking it would leave a blank card on screen. Log it to history but
+  // skip the window.
+  if (n.summary.isEmpty() && n.body.isEmpty() && n.icon.isNull()) {
+    return;
+  }
+
   // If we're already at the visible cap, queue it instead of creating a
   // window: this is also what makes the timeout "only start once visible"
   // -- the NotificationWindow (and its auto-dismiss QTimer) simply doesn't
-  // exist yet for anything sitting in m_pending.
+  // exist yet for anything sitting in m_pending. Cap the queue so a flood of
+  // notifications while the slots are full can't grow memory unboundedly;
+  // when it overflows the oldest queued notification is dropped.
   if (m_cfg.maxVisible > 0 && m_windows.size() >= m_cfg.maxVisible) {
     m_pending.append(n);
+    const int cap = qMax(1, m_cfg.maxVisible * 4);
+    while (m_pending.size() > cap) {
+      m_pending.removeFirst();
+    }
     return;
   }
 
@@ -91,25 +104,34 @@ bool NotificationManager::replaceMatchingCard(const Notification &n) {
     if (p == nullptr || p->id() == n.id) {
       continue;
     }
-    if (p->appName() == n.appName && p->summary() == n.summary) {
-      // A new notification reloads the config (see show()): hand the freshest
-      // config to the existing card so an in-place merge paints with the
-      // current theme instead of its construction-time colors.
-      p->setConfig(m_cfg);
-      p->updateFrom(n);
-      // One history entry per card: refresh instead of duplicating.
-      for (HistoryEntry &e : m_history) {
-        if (e.id == n.id) {
-          e.summary = n.summary;
-          e.body = n.body;
-          e.urgency = n.urgency;
-          e.timestamp = QDateTime::currentDateTime();
-          saveHistory();
-          break;
-        }
-      }
-      return true;
+    // In-place replacement for clients that DON'T send replaces_id (volume
+    // helpers, progress apps, pure-icon OSDs): they issue a fresh id per
+    // update, which would otherwise stack a new card on every change. Group
+    // by app name (mako/dunst style) so a live card from the same app is
+    // refreshed instead of duplicated. Distinct real messages almost always
+    // bring their own app name or replaces_id, so they are unaffected. The
+    // exact-summary match that used to gate this made volume OSDs (which
+    // change their summary text per tick) stack a card every time.
+    if (p->appName() != n.appName) {
+      continue;
     }
+    // A new notification reloads the config (see show()): hand the freshest
+    // config to the existing card so an in-place merge paints with the
+    // current theme instead of its construction-time colors.
+    p->setConfig(m_cfg);
+    p->updateFrom(n);
+    // One history entry per card: refresh instead of duplicating.
+    for (HistoryEntry &e : m_history) {
+      if (e.id == n.id) {
+        e.summary = n.summary;
+        e.body = n.body;
+        e.urgency = n.urgency;
+        e.timestamp = QDateTime::currentDateTime();
+        saveHistory();
+        break;
+      }
+    }
+    return true;
   }
   return false;
 }

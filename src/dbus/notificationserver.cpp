@@ -42,6 +42,14 @@ QImage imageFromHint(const QVariant &hint) {
     return {};
   }
 
+  // Validate that the pixel buffer is large enough for the declared dimensions.
+  // An undersized buffer with large width/height/rowstride would cause QImage
+  // to read past the end of the QByteArray (heap-buffer over-read -> crash).
+  const qint64 expectedBytes = static_cast<qint64>(height) * rowstride;
+  if (rowstride <= 0 || expectedBytes > pixels.size()) {
+    return {};
+  }
+
   const QImage::Format fmt =
       hasAlpha ? QImage::Format_RGBA8888 : QImage::Format_RGB888;
   const QImage view(reinterpret_cast<const uchar *>(pixels.constData()), width,
